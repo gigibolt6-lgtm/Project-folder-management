@@ -57,6 +57,7 @@ interface FolderNodeProps {
   isSelected: boolean;
   isHighlighted: boolean;
   onSelect: (id: string) => void;
+  onOpenFolder: (folder: FolderNode) => void;
   tags: Tag[];
   theme: any;
 }
@@ -66,11 +67,13 @@ const FolderNodeComponent: React.FC<FolderNodeProps> = ({
   isSelected, 
   isHighlighted,
   onSelect,
+  onOpenFolder,
   tags,
   theme
 }) => {
   const data = node.data as FolderNode;
   const nodeTags = tags.filter(t => data.tags.includes(t.id));
+  const lastRightClickRef = useRef<number>(0);
 
   return (
     <motion.div
@@ -81,6 +84,19 @@ const FolderNodeComponent: React.FC<FolderNodeProps> = ({
       onClick={(e) => {
         e.stopPropagation();
         onSelect(data.id);
+      }}
+      onMouseDown={(e) => {
+        if (e.button !== 2) return;
+        e.preventDefault();
+        e.stopPropagation();
+        const now = Date.now();
+        if (now - lastRightClickRef.current <= 350) {
+          onOpenFolder(data);
+        }
+        lastRightClickRef.current = now;
+      }}
+      onContextMenu={(e) => {
+        e.preventDefault();
       }}
       className={cn(
         "absolute flex items-center gap-2.5 p-2 bg-white rounded-lg border border-gray-200 transition-all cursor-pointer group shadow-sm hover:shadow-md",
@@ -174,6 +190,7 @@ const TRANSLATIONS: Record<string, Record<string, string>> = {
     iframeRestriction: 'セキュリティ上の理由により、プレビュー画面（iframe）内ではローカルフォルダを選択できません。\n\n右上の「新規タブで開く」ボタンからアプリを別画面で開いてお試しください。',
     folderScanComplete: 'フォルダ「{name}」のスキャンが完了しました。',
     folderLoadError: 'フォルダの読み込み中にエラーが発生しました。',
+    folderOpenFailed: 'フォルダを開けませんでした。ローカルフォルダを選択後にお試しください。',
     localFolder: 'ローカルフォルダ',
     bgColorLabel: 'バックグラウンドの色味',
     bgColorDesc: '全体背景のベースカラー',
@@ -231,6 +248,7 @@ const TRANSLATIONS: Record<string, Record<string, string>> = {
     iframeRestriction: 'For security reasons, local folders cannot be selected in the preview (iframe).\n\nPlease open the app in a separate tab using the top-right button and try again.',
     folderScanComplete: 'Finished scanning folder "{name}".',
     folderLoadError: 'An error occurred while loading the folder.',
+    folderOpenFailed: 'Could not open the folder. Please try after selecting a local folder.',
     localFolder: 'Local Folder',
     bgColorLabel: 'Background color',
     bgColorDesc: 'Base color of the app background',
@@ -315,6 +333,7 @@ export default function App() {
   const [settingsCategory, setSettingsCategory] = useState<'root' | 'lang' | 'tags' | 'env'>('root');
   const [viewTransform, setViewTransform] = useState({ x: 100, y: 300, k: 1 });
   const containerRef = useRef<HTMLDivElement>(null);
+  const folderHandleMapRef = useRef<Map<string, any>>(new Map());
 
   // --- Local Folder Scanning Logic ---
   const handleSelectLocalFolder = async () => {
@@ -337,14 +356,16 @@ export default function App() {
       const handle = await window.showDirectoryPicker();
       
       const scan = async (dirHandle: any, parentPath: string): Promise<FolderNode> => {
+        const nodeId = Math.random().toString(36).substring(2, 11);
         const node: FolderNode = {
-          id: Math.random().toString(36).substring(2, 11),
+          id: nodeId,
           name: dirHandle.name,
           path: `${parentPath}/${dirHandle.name}`,
           tags: [],
           metadata: { description: '', department: '', owner: '', remark: '' },
           children: []
         };
+        folderHandleMapRef.current.set(nodeId, dirHandle);
 
         for await (const entry of dirHandle.values()) {
           if (entry.kind === 'directory') {
@@ -450,6 +471,29 @@ export default function App() {
       }));
     }
   }, [treeData]);
+
+  const handleOpenFolder = useCallback(async (folder: FolderNode) => {
+    try {
+      const folderHandle = folderHandleMapRef.current.get(folder.id);
+      // @ts-ignore
+      if (folderHandle && window.showDirectoryPicker) {
+        // @ts-ignore
+        await window.showDirectoryPicker({ startIn: folderHandle });
+        return;
+      }
+
+      const href = folder.path.startsWith('file://')
+        ? folder.path
+        : `file://${encodeURI(folder.path)}`;
+      const openedWindow = window.open(href, '_blank', 'noopener,noreferrer');
+      if (!openedWindow) {
+        alert(t('folderOpenFailed'));
+      }
+    } catch (error) {
+      console.error(error);
+      alert(t('folderOpenFailed'));
+    }
+  }, [t]);
 
   const handleMetadataChange = (id: string, field: keyof FolderMetadata, value: string) => {
     setState(prev => {
@@ -625,12 +669,13 @@ export default function App() {
             {/* Nodes */}
             <AnimatePresence mode="popLayout">
               {treeData.descendants().map((node) => (
-                <FolderNodeComponent 
+                <FolderNodeComponent
                   key={node.data.id}
                   node={node}
                   isSelected={state.selectedFolderId === node.data.id}
                   isHighlighted={highlightedFolderIds.has(node.data.id)}
                   onSelect={toggleNode}
+                  onOpenFolder={handleOpenFolder}
                   tags={state.tags}
                   theme={state.theme}
                 />
