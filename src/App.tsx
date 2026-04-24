@@ -160,6 +160,35 @@ const TRANSLATIONS: Record<string, Record<string, string>> = {
     langSelect: '表示言語の選択',
     addTag: 'タグを追加',
     colorEdit: 'カラーカスタマイズ',
+    selectLocalFolder: 'ローカルフォルダを選択',
+    virtualRoot: '仮想ルート',
+    promptFolderDisplayName: 'フォルダ表示名',
+    promptFolderPath: 'フォルダパス (ローカルパス可)',
+    promptTagName: 'タグ名',
+    folderDescriptionPlaceholder: 'フォルダの説明...',
+    assignHint: 'タグを付与するには、ツリーからフォルダを選択してください。',
+    connectionTo: '接続先',
+    totalFolders: '総フォルダ数',
+    systemDiagnosticOk: 'システム診断: OK',
+    browserNotSupported: 'お使いのブラウザはローカルフォルダの選択に対応していないか、セキュリティ動作が制限されています。Chrome/Edgeの最新版をご利用ください。',
+    iframeRestriction: 'セキュリティ上の理由により、プレビュー画面（iframe）内ではローカルフォルダを選択できません。\n\n右上の「新規タブで開く」ボタンからアプリを別画面で開いてお試しください。',
+    folderScanComplete: 'フォルダ「{name}」のスキャンが完了しました。',
+    folderLoadError: 'フォルダの読み込み中にエラーが発生しました。',
+    localFolder: 'ローカルフォルダ',
+    bgColorLabel: 'バックグラウンドの色味',
+    bgColorDesc: '全体背景のベースカラー',
+    folderColorLabel: 'フォルダアイコンの色味',
+    folderColorDesc: 'フォルダアイコンの基本色',
+    focusColorLabel: '強調フォーカスの色味',
+    focusColorDesc: '選択・ハイライト時の強調色',
+    lineColorLabel: '連結ラインの色味',
+    lineColorDesc: 'フォルダ同士を繋ぐ線の色',
+    langName_ja: '日本語',
+    langName_en: '英語',
+    langName_th: 'タイ語',
+    langName_zh: '中国語',
+    langName_tl: 'タガログ語',
+    langName_pl: 'ポーランド語',
   },
   en: {
     appTitle: 'DocStructure TagManager',
@@ -188,6 +217,71 @@ const TRANSLATIONS: Record<string, Record<string, string>> = {
     langSelect: 'Select Language',
     addTag: 'Add Tag',
     colorEdit: 'Color Customization',
+    selectLocalFolder: 'Select Local Folder',
+    virtualRoot: 'Virtual Root',
+    promptFolderDisplayName: 'Folder display name',
+    promptFolderPath: 'Folder path (local path allowed)',
+    promptTagName: 'Tag name',
+    folderDescriptionPlaceholder: 'Folder description...',
+    assignHint: 'Select a folder from the tree to assign tags.',
+    connectionTo: 'Connected to',
+    totalFolders: 'Total folders',
+    systemDiagnosticOk: 'System Diagnostic: OK',
+    browserNotSupported: 'Your browser does not support local folder selection or security policies are restricting it. Please use the latest Chrome/Edge.',
+    iframeRestriction: 'For security reasons, local folders cannot be selected in the preview (iframe).\n\nPlease open the app in a separate tab using the top-right button and try again.',
+    folderScanComplete: 'Finished scanning folder "{name}".',
+    folderLoadError: 'An error occurred while loading the folder.',
+    localFolder: 'Local Folder',
+    bgColorLabel: 'Background color',
+    bgColorDesc: 'Base color of the app background',
+    folderColorLabel: 'Folder icon color',
+    folderColorDesc: 'Primary color of folder icons',
+    focusColorLabel: 'Focus highlight color',
+    focusColorDesc: 'Accent color for selection/highlight',
+    lineColorLabel: 'Connector line color',
+    lineColorDesc: 'Color of lines connecting folders',
+    langName_ja: 'Japanese',
+    langName_en: 'English',
+    langName_th: 'Thai',
+    langName_zh: 'Chinese',
+    langName_tl: 'Tagalog',
+    langName_pl: 'Polish',
+  },
+  th: {
+    langSelect: 'เลือกภาษา',
+    langName_ja: 'ภาษาญี่ปุ่น',
+    langName_en: 'ภาษาอังกฤษ',
+    langName_th: 'ภาษาไทย',
+    langName_zh: 'ภาษาจีน',
+    langName_tl: 'ภาษาตากาล็อก',
+    langName_pl: 'ภาษาโปแลนด์',
+  },
+  zh: {
+    langSelect: '选择语言',
+    langName_ja: '日语',
+    langName_en: '英语',
+    langName_th: '泰语',
+    langName_zh: '中文',
+    langName_tl: '他加禄语',
+    langName_pl: '波兰语',
+  },
+  tl: {
+    langSelect: 'Pumili ng Wika',
+    langName_ja: 'Hapon',
+    langName_en: 'Ingles',
+    langName_th: 'Thai',
+    langName_zh: 'Tsino',
+    langName_tl: 'Tagalog',
+    langName_pl: 'Polish',
+  },
+  pl: {
+    langSelect: 'Wybierz język',
+    langName_ja: 'Japoński',
+    langName_en: 'Angielski',
+    langName_th: 'Tajski',
+    langName_zh: 'Chiński',
+    langName_tl: 'Tagalski',
+    langName_pl: 'Polski',
   },
 };
 
@@ -212,8 +306,10 @@ export default function App() {
     }
   });
 
-  const t = (key: string) => {
-    return TRANSLATIONS[state.language]?.[key] || TRANSLATIONS['ja'][key] || key;
+  const t = (key: string, vars?: Record<string, string>) => {
+    const template = TRANSLATIONS[state.language]?.[key] || TRANSLATIONS['en'][key] || key;
+    if (!vars) return template;
+    return Object.entries(vars).reduce((acc, [k, v]) => acc.replaceAll(`{${k}}`, v), template);
   };
 
   const [settingsCategory, setSettingsCategory] = useState<'root' | 'lang' | 'tags' | 'env'>('root');
@@ -228,12 +324,12 @@ export default function App() {
       
       // @ts-ignore - File System Access API
       if (!window.showDirectoryPicker) {
-        alert('お使いのブラウザはローカルフォルダの選択に対応していないか、セキュリティ動作が制限されています。Chrome/Edgeの最新版をご利用ください。');
+        alert(t('browserNotSupported'));
         return;
       }
 
       if (isInIframe) {
-        alert('セキュリティ上の理由により、プレビュー画面（iframe）内ではローカルフォルダを選択できません。\n\n右上の「新規タブで開く」ボタンからアプリを別画面で開いてお試しください。');
+        alert(t('iframeRestriction'));
         return;
       }
 
@@ -268,15 +364,15 @@ export default function App() {
         selectedFolderId: rootNode.id,
         sources: [
           ...prev.sources,
-          { id: rootNode.id, name: handle.name, path: 'Local Folder', isActive: true }
+          { id: rootNode.id, name: handle.name, path: t('localFolder'), isActive: true }
         ]
       }));
       
-      alert(`フォルダ「${handle.name}」のスキャンが完了しました。`);
+      alert(t('folderScanComplete', { name: handle.name }));
     } catch (err: any) {
       if (err.name !== 'AbortError') {
         console.error(err);
-        alert('フォルダの読み込み中にエラーが発生しました。');
+        alert(t('folderLoadError'));
       }
     }
   };
@@ -594,7 +690,7 @@ export default function App() {
                   <textarea 
                     className="w-full mt-1 text-sm border-gray-200 rounded p-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all"
                     rows={3}
-                    placeholder="フォルダの説明..."
+                    placeholder={t('folderDescriptionPlaceholder')}
                     value={selectedFolder.metadata.description}
                     onChange={(e) => handleMetadataChange(selectedFolder.id, 'description', e.target.value)}
                   />
@@ -669,7 +765,7 @@ export default function App() {
               <div className="p-4 bg-amber-50 rounded-lg border border-amber-100 flex items-start gap-3">
                 <Info size={14} className="text-amber-500 mt-0.5 shrink-0" />
                 <p className="text-[11px] text-amber-700 leading-relaxed">
-                  タグを付与するには、ツリーからフォルダを選択してください。
+                  {t('assignHint')}
                 </p>
               </div>
             ) : (
@@ -714,12 +810,12 @@ export default function App() {
     {/* --- Bottom Status Bar --- */}
     <footer className="h-8 bg-gray-50 border-t border-gray-200 flex items-center px-4 justify-between shrink-0 z-50">
       <div className="flex items-center gap-4">
-        <span className="text-[10px] text-gray-500 font-medium">接続先: 192.168.1.10 (Online)</span>
-        <span className="text-[10px] text-gray-500 font-medium">総フォルダ数: 1,284</span>
+        <span className="text-[10px] text-gray-500 font-medium">{t('connectionTo')}: 192.168.1.10 (Online)</span>
+        <span className="text-[10px] text-gray-500 font-medium">{t('totalFolders')}: 1,284</span>
       </div>
       <div className="flex items-center gap-2">
         <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
-        <span className="text-[10px] text-gray-500 font-bold uppercase tracking-tighter">System Diagnostic: OK</span>
+        <span className="text-[10px] text-gray-500 font-bold uppercase tracking-tighter">{t('systemDiagnosticOk')}</span>
       </div>
     </footer>
 
@@ -796,12 +892,12 @@ export default function App() {
                               className="text-xs font-bold text-blue-600 bg-blue-50 px-3 py-1.5 rounded-lg hover:bg-blue-100 flex items-center gap-1.5 transition-colors"
                             >
                               <Folder size={14} />
-                              ローカルフォルダを選択
+                              {t('selectLocalFolder')}
                             </button>
                             <button 
                               onClick={() => {
-                                const name = prompt('フォルダ表示名');
-                                const path = prompt('フォルダパス (ローカルパス可)');
+                                const name = prompt(t('promptFolderDisplayName'));
+                                const path = prompt(t('promptFolderPath'));
                                 if (name && path) {
                                   const newSource = { id: `src-${Date.now()}`, name, path, isActive: true };
                                   setState(prev => ({ ...prev, sources: [...prev.sources, newSource] }));
@@ -810,7 +906,7 @@ export default function App() {
                               className="text-xs font-bold text-gray-500 hover:text-blue-600 hover:underline flex items-center gap-1 transition-colors"
                             >
                               <Plus size={14} />
-                              仮想ルート
+                              {t('virtualRoot')}
                             </button>
                           </div>
                        </div>
@@ -839,12 +935,12 @@ export default function App() {
                         <label className="text-[11px] font-bold text-gray-400 uppercase tracking-wider">{t('langSelect')}</label>
                         <div className="grid grid-cols-2 gap-3">
                           {[
-                            { id: 'ja', label: '日本語' },
-                            { id: 'en', label: 'English' },
-                            { id: 'th', label: 'ไทย (Thai)' },
-                            { id: 'zh', label: '中文 (Chinese)' },
-                            { id: 'tl', label: 'Tagalog' },
-                            { id: 'pl', label: 'Polski (Polish)' },
+                            { id: 'ja', label: t('langName_ja') },
+                            { id: 'en', label: t('langName_en') },
+                            { id: 'th', label: t('langName_th') },
+                            { id: 'zh', label: t('langName_zh') },
+                            { id: 'tl', label: t('langName_tl') },
+                            { id: 'pl', label: t('langName_pl') },
                           ].map((lang) => (
                             <button 
                               key={lang.id}
@@ -873,7 +969,7 @@ export default function App() {
                            <label className="text-[11px] font-bold text-gray-400 uppercase tracking-wider">{t('tagSettings')}</label>
                            <button 
                              onClick={() => {
-                               const name = prompt('タグ名');
+                               const name = prompt(t('promptTagName'));
                                if (name) {
                                  const newTag: Tag = { id: `tag-${Date.now()}`, name, color: '#3B82F6', isActive: true };
                                  setState(prev => ({ ...prev, tags: [...prev.tags, newTag] }));
@@ -934,10 +1030,10 @@ export default function App() {
                         
                         <div className="grid grid-cols-1 gap-6">
                           {[
-                            { key: 'backgroundColor', label: 'バックグラウンドの色味', desc: '全体背景のベースカラー' },
-                            { key: 'folderColor', label: 'フォルダアイコンの色味', desc: 'フォルダアイコンの基本色' },
-                            { key: 'focusColor', label: '強調フォーカスの色味', desc: '選択・ハイライト時の強調色' },
-                            { key: 'lineColor', label: '連結ラインの色味', desc: 'フォルダ同士を繋ぐ線の色' },
+                            { key: 'backgroundColor', label: t('bgColorLabel'), desc: t('bgColorDesc') },
+                            { key: 'folderColor', label: t('folderColorLabel'), desc: t('folderColorDesc') },
+                            { key: 'focusColor', label: t('focusColorLabel'), desc: t('focusColorDesc') },
+                            { key: 'lineColor', label: t('lineColorLabel'), desc: t('lineColorDesc') },
                           ].map((item) => (
                             <div key={item.key} className="flex items-center justify-between p-4 bg-gray-50/50 border border-gray-100 rounded-2xl">
                               <div className="flex-1">
