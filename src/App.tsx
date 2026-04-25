@@ -103,6 +103,10 @@ const FolderNodeComponent: React.FC<FolderNodeProps> = ({
         e.stopPropagation();
         onSelect(data.id);
       }}
+      onDoubleClick={(e) => {
+        e.stopPropagation();
+        onOpenFolder(data);
+      }}
       onMouseDown={(e) => {
         e.stopPropagation();
         if (e.button !== 2) return;
@@ -176,10 +180,6 @@ const FolderNodeComponent: React.FC<FolderNodeProps> = ({
           isSelected && "bg-blue-50"
         )}
         style={isSelected ? { color: theme.focusColor } : { color: theme.folderColor }}
-        onDoubleClick={(e) => {
-          e.stopPropagation();
-          onOpenFolder(data);
-        }}
       >
         <Folder size={18} className={cn(isSelected ? "fill-current opacity-20" : "")} />
       </div>
@@ -663,6 +663,7 @@ export default function App() {
   const [settingsCategory, setSettingsCategory] = useState<'root' | 'lang' | 'tags' | 'env' | 'edit'>('root');
   const [viewTransform, setViewTransform] = useState({ x: 100, y: 300, k: 1 });
   const containerRef = useRef<HTMLDivElement>(null);
+  const contextMenuRef = useRef<HTMLDivElement>(null);
   const folderHandleMapRef = useRef<Map<string, any>>(new Map());
   const [isFolderEditMode, setIsFolderEditMode] = useState(false);
   const [contextMenu, setContextMenu] = useState<ContextMenuState>(null);
@@ -1554,6 +1555,7 @@ export default function App() {
 
     {contextMenu && isFolderEditMode && (
       <div
+        ref={contextMenuRef}
         className="fixed z-[95] min-w-44 bg-white border border-gray-200 rounded-lg shadow-xl p-1"
         style={{ left: contextMenu.x, top: contextMenu.y }}
       >
