@@ -613,6 +613,118 @@ export default function App() {
   const [viewTransform, setViewTransform] = useState({ x: 100, y: 300, k: 1 });
   const containerRef = useRef<HTMLDivElement>(null);
   const folderHandleMapRef = useRef<Map<string, any>>(new Map());
+  const [isFolderEditMode, setIsFolderEditMode] = useState(false);
+  const [contextMenu, setContextMenu] = useState<ContextMenuState>(null);
+  const [dialogState, setDialogState] = useState<FolderDialogState>(null);
+  const [draggingNodeId, setDraggingNodeId] = useState<string | null>(null);
+  const [dragOverNodeId, setDragOverNodeId] = useState<string | null>(null);
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
+
+  const updateNodePathRecursive = useCallback((node: FolderNode, parentPath: string): FolderNode => {
+    const basePath = parentPath ? `${parentPath}/${node.name}` : `/${node.name}`;
+    const normalizedPath = basePath.replace(/\/+/g, '/');
+    return {
+      ...node,
+      path: normalizedPath,
+      children: node.children?.map(child => updateNodePathRecursive(child, normalizedPath)),
+    };
+  }, []);
+
+  const extractNodeFromTree = useCallback((nodes: FolderNode[], targetId: string): {
+    nextNodes: FolderNode[];
+    extractedNode: FolderNode | null;
+  } => {
+    let extractedNode: FolderNode | null = null;
+    const nextNodes = nodes
+      .map(node => {
+        if (node.id === targetId) {
+          extractedNode = node;
+          return null;
+        }
+        if (!node.children?.length) return node;
+        const { nextNodes: nextChildren, extractedNode: childExtracted } = extractNodeFromTree(node.children, targetId);
+        if (childExtracted) extractedNode = childExtracted;
+        return { ...node, children: nextChildren };
+      })
+      .filter((node): node is FolderNode => node !== null);
+    return { nextNodes, extractedNode };
+  }, []);
+
+  const isDescendant = useCallback((sourceId: string, targetId: string) => {
+    const findNode = (nodes: FolderNode[]): FolderNode | null => {
+      for (const node of nodes) {
+        if (node.id === sourceId) return node;
+        if (node.children?.length) {
+          const found = findNode(node.children);
+          if (found) return found;
+        }
+      }
+      return null;
+    };
+    const sourceNode = findNode(state.items);
+    if (!sourceNode) return false;
+    const containsTarget = (node: FolderNode): boolean => {
+      if (node.id === targetId) return true;
+      return (node.children ?? []).some(containsTarget);
+    };
+    return (sourceNode.children ?? []).some(containsTarget);
+  }, [state.items]);
+
+  const ensureNoDuplicateFolder = useCallback(async (dirHandle: any, folderName: string) => {
+    try {
+      await dirHandle.getDirectoryHandle(folderName);
+      return false;
+    } catch (error: any) {
+      if (error?.name === 'NotFoundError') return true;
+      throw error;
+    }
+  }, []);
+
+  const moveNodeInState = useCallback((nodes: FolderNode[], sourceId: string, targetId: string) => {
+    const { nextNodes, extractedNode } = extractNodeFromTree(nodes, sourceId);
+    if (!extractedNode) return nodes;
+    const attachToTarget = (items: FolderNode[]): FolderNode[] =>
+      items.map(node => {
+        if (node.id === targetId) {
+          const movedNode = updateNodePathRecursive(extractedNode, node.path);
+          return { ...node, children: [...(node.children ?? []), movedNode] };
+        }
+        if (!node.children?.length) return node;
+        return { ...node, children: attachToTarget(node.children) };
+      });
+    return attachToTarget(nextNodes);
+  }, [extractNodeFromTree, updateNodePathRecursive]);
+
+  const renameNodeInState = useCallback((nodes: FolderNode[], folderId: string, nextName: string): FolderNode[] =>
+    nodes.map(node => {
+      if (node.id === folderId) {
+        const renamedNode = { ...node, name: nextName };
+        const parentPath = node.path.split('/').slice(0, -1).join('/') || '';
+        return updateNodePathRecursive(renamedNode, parentPath);
+      }
+      if (!node.children?.length) return node;
+      return { ...node, children: renameNodeInState(node.children, folderId, nextName) };
+    })
+  , [updateNodePathRecursive]);
+
+  const addChildNodeInState = useCallback((nodes: FolderNode[], folderId: string, childNode: FolderNode): FolderNode[] =>
+    nodes.map(node => {
+      if (node.id === folderId) {
+        return { ...node, children: [...(node.children ?? []), childNode] };
+      }
+      if (!node.children?.length) return node;
+      return { ...node, children: addChildNodeInState(node.children, folderId, childNode) };
+    })
+  , []);
+
+  const deleteNodeInState = useCallback((nodes: FolderNode[], folderId: string): FolderNode[] =>
+    nodes
+      .filter(node => node.id !== folderId)
+      .map(node => ({
+        ...node,
+        children: node.children ? deleteNodeInState(node.children, folderId) : undefined,
+      }))
+  , []);
 
   // --- Local Folder Scanning Logic ---
   const handleSelectLocalFolder = async () => {
