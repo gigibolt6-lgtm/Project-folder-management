@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react';
+import React, { useState, useMemo, useCallback, useEffect, useRef, useLayoutEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
   Search, 
@@ -7,6 +7,7 @@ import {
   Info, 
   ChevronRight, 
   Folder, 
+  FolderOpen,
   MoreVertical,
   Plus,
   Minus,
@@ -56,11 +57,14 @@ const TagBadge = ({ tag, isSmall = false }: { tag: Tag, isSmall?: boolean }) => 
 
 interface FolderNodeProps {
   node: any;
+  nodeSize: NodeSize;
   isSelected: boolean;
   isHighlighted: boolean;
+  isExpanded: boolean;
   isEditMode: boolean;
   isDragTarget: boolean;
   onSelect: (id: string) => void;
+  onToggleExpand: (id: string) => void;
   onOpenFolder: (folder: FolderNode) => void;
   onContextMenu: (event: React.MouseEvent, folder: FolderNode) => void;
   onDragStart: (id: string) => void;
@@ -68,17 +72,21 @@ interface FolderNodeProps {
   onDragLeave: (id: string) => void;
   onDrop: (id: string) => void;
   onDragEnd: () => void;
+  onNodeSizeChange: (id: string, size: { width: number; height: number }) => void;
   tags: Tag[];
   theme: any;
 }
 
 const FolderNodeComponent: React.FC<FolderNodeProps> = ({ 
   node, 
+  nodeSize,
   isSelected, 
   isHighlighted,
+  isExpanded,
   isEditMode,
   isDragTarget,
   onSelect,
+  onToggleExpand,
   onOpenFolder,
   onContextMenu,
   onDragStart,
@@ -86,14 +94,39 @@ const FolderNodeComponent: React.FC<FolderNodeProps> = ({
   onDragLeave,
   onDrop,
   onDragEnd,
+  onNodeSizeChange,
   tags,
   theme
 }) => {
   const data = node.data as FolderNode;
   const nodeTags = tags.filter(t => data.tags.includes(t.id));
+  const hasChildren = (data.children?.length ?? 0) > 0;
+  const nodeRef = useRef<HTMLDivElement | null>(null);
+  const minContentWidth = 66; // tag 3個分の目安
+  const maxContentWidth = 220; // tag 10個分の目安
+  const preferredContentWidth = Math.min(Math.max(data.name.length * 8 + 24, minContentWidth), maxContentWidth);
+
+  useLayoutEffect(() => {
+    if (!nodeRef.current) return;
+    const target = nodeRef.current;
+
+    const notifySize = () => {
+      const rect = target.getBoundingClientRect();
+      onNodeSizeChange(data.id, {
+        width: rect.width,
+        height: rect.height
+      });
+    };
+
+    notifySize();
+    const observer = new ResizeObserver(() => notifySize());
+    observer.observe(target);
+    return () => observer.disconnect();
+  }, [data.id, onNodeSizeChange, data.name, data.tags.length, isSelected, isHighlighted, isEditMode, isExpanded]);
 
   return (
     <motion.div
+      ref={nodeRef}
       layoutId={`node-${data.id}`}
       initial={{ opacity: 0, scale: 0.8 }}
       animate={{ opacity: 1, scale: 1 }}
@@ -101,10 +134,6 @@ const FolderNodeComponent: React.FC<FolderNodeProps> = ({
       onClick={(e) => {
         e.stopPropagation();
         onSelect(data.id);
-      }}
-      onDoubleClick={(e) => {
-        e.stopPropagation();
-        onOpenFolder(data);
       }}
       onMouseDown={(e) => {
         e.stopPropagation();
@@ -163,29 +192,45 @@ const FolderNodeComponent: React.FC<FolderNodeProps> = ({
       )}
       style={{
         left: node.y,
-        top: node.x,
-        transform: 'translateY(-50%)',
-        minWidth: '160px',
+        top: node.x - nodeSize.height / 2,
+        minWidth: '180px',
         borderColor: isSelected ? theme.focusColor : undefined
       }}
     >
-      <div
+      <button
+        type="button"
+        disabled={isEditMode}
+        onClick={(event) => {
+          event.stopPropagation();
+          event.preventDefault();
+          if (!isEditMode) onOpenFolder(data);
+        }}
+        title="フォルダを開く"
+        aria-label="フォルダを開く"
         className={cn(
-          "p-1.5 rounded bg-gray-50 group-hover:bg-blue-50 transition-colors",
-          isSelected && "bg-blue-50"
+          "p-1.5 rounded transition-colors",
+          isEditMode
+            ? "bg-gray-50 text-gray-300 cursor-not-allowed"
+            : "bg-gray-50 text-gray-500 hover:bg-blue-50 hover:text-blue-600"
         )}
-        style={isSelected ? { color: theme.focusColor } : { color: theme.folderColor }}
       >
-        <Folder size={18} className={cn(isSelected ? "fill-current opacity-20" : "")} />
-      </div>
+        <FolderOpen size={18} />
+      </button>
       
-      <div className="flex-1 overflow-hidden">
+      <div
+        className="flex-1 overflow-hidden"
+        style={{
+          width: preferredContentWidth,
+          minWidth: minContentWidth,
+          maxWidth: maxContentWidth
+        }}
+      >
         <div className="flex items-center justify-between gap-2">
-          <div className="text-xs font-bold text-gray-900 truncate tracking-tight">{data.name}</div>
+          <div className="text-xs font-bold text-gray-900 break-words tracking-tight">{data.name}</div>
           {isEditMode && <GripVertical size={12} className="text-blue-400 shrink-0" />}
         </div>
         <div className="flex flex-wrap gap-0.5 mt-1">
-          {nodeTags.slice(0, 3).map(t => (
+          {nodeTags.map(t => (
             <div 
               key={t.id} 
               className="px-1 py-0.5 rounded text-[8px] font-bold text-white uppercase"
@@ -196,6 +241,24 @@ const FolderNodeComponent: React.FC<FolderNodeProps> = ({
           ))}
         </div>
       </div>
+
+      {hasChildren ? (
+        <button
+          type="button"
+          onClick={(event) => {
+            event.stopPropagation();
+            event.preventDefault();
+            onToggleExpand(data.id);
+          }}
+          title={isExpanded ? '子フォルダを折りたたむ' : '子フォルダを展開'}
+          aria-label={isExpanded ? '子フォルダを折りたたむ' : '子フォルダを展開'}
+          className="w-6 h-6 shrink-0 rounded border border-gray-200 bg-white text-gray-500 hover:bg-blue-50 hover:text-blue-600 transition-colors flex items-center justify-center"
+        >
+          {isExpanded ? <Minus size={12} /> : <Plus size={12} />}
+        </button>
+      ) : (
+        <div className="w-6 h-6 shrink-0" aria-hidden="true" />
+      )}
 
       {isSelected && (
         <motion.div 
@@ -221,6 +284,11 @@ type FolderDialogState =
   | { type: 'create'; folderId: string; value: string }
   | { type: 'delete'; folderId: string }
   | null;
+
+type NodeSize = {
+  width: number;
+  height: number;
+};
 
 // --- Translation ---
 const TRANSLATIONS: Record<string, Record<string, string>> = {
@@ -670,6 +738,7 @@ export default function App() {
   const [draggingNodeId, setDraggingNodeId] = useState<string | null>(null);
   const [dragOverNodeId, setDragOverNodeId] = useState<string | null>(null);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const [nodeSizeMap, setNodeSizeMap] = useState<Record<string, NodeSize>>({});
 
   const updateNodePathRecursive = useCallback((node: FolderNode, parentPath: string): FolderNode => {
     const basePath = parentPath ? `${parentPath}/${node.name}` : `/${node.name}`;
@@ -930,6 +999,20 @@ export default function App() {
 
   // --- Tree Layout Calculation ---
   const treeData = useMemo(() => {
+    const visibleNodes = flatData.filter(folder => {
+      if (!folder.parentId) return true;
+      let currentParentId = folder.parentId;
+      while (currentParentId) {
+        if (!state.expandedFolderIds.has(currentParentId)) return false;
+        const parent = flatData.find(item => item.id === currentParentId);
+        currentParentId = parent?.parentId ?? '';
+      }
+      return true;
+    });
+    const visibleSizeList = visibleNodes.map(folder => nodeSizeMap[folder.id]).filter(Boolean) as NodeSize[];
+    const maxNodeHeight = visibleSizeList.length ? Math.max(...visibleSizeList.map(size => size.height)) : 72;
+    const maxNodeWidth = visibleSizeList.length ? Math.max(...visibleSizeList.map(size => size.width)) : 220;
+
     const rootNode = hierarchy(state.items[0], (d) => {
       if (state.expandedFolderIds.has(d.id)) return d.children;
       return null;
@@ -937,11 +1020,11 @@ export default function App() {
     
     // We want hierarchical layout going right
     const treeLayout = tree<FolderNode>()
-      .nodeSize([80, 280]) // [height padding, width spacing]
+      .nodeSize([Math.max(96, maxNodeHeight + 24), Math.max(280, maxNodeWidth + 120)]) // [height padding, width spacing]
       .separation((a, b) => (a.parent === b.parent ? 1 : 1.2));
       
     return treeLayout(rootNode);
-  }, [state.items, state.expandedFolderIds]);
+  }, [state.items, state.expandedFolderIds, flatData, nodeSizeMap]);
 
   const highlightedFolderIds = useMemo(() => {
     if (state.tagMode === 'search' && state.activeTagFilters.size > 0) {
@@ -952,26 +1035,19 @@ export default function App() {
     return new Set<string>();
   }, [state.tagMode, state.activeTagFilters, flatData]);
 
-  // --- Actions ---
-  const toggleNode = useCallback((id: string) => {
-    setState(prev => {
-      const next = new Set(prev.expandedFolderIds);
-      const isAlreadyExpanded = next.has(id);
-      
-      if (prev.selectedFolderId === id) {
-        // Second click behavior
-        if (isAlreadyExpanded) {
-          next.delete(id);
-        } else {
-          next.add(id);
-        }
-      } else {
-        // First click behavior
-        next.add(id);
+  const handleNodeSizeChange = useCallback((id: string, size: NodeSize) => {
+    setNodeSizeMap(prev => {
+      const current = prev[id];
+      if (current && Math.abs(current.width - size.width) < 1 && Math.abs(current.height - size.height) < 1) {
+        return prev;
       }
-      
-      return { ...prev, expandedFolderIds: next, selectedFolderId: id };
+      return { ...prev, [id]: size };
     });
+  }, []);
+
+  // --- Actions ---
+  const handleSelectNode = useCallback((id: string) => {
+    setState(prev => ({ ...prev, selectedFolderId: id }));
 
     // Determine target camera position
     const node = treeData.descendants().find(d => d.data.id === id);
@@ -985,6 +1061,18 @@ export default function App() {
       }));
     }
   }, [treeData]);
+
+  const handleToggleExpand = useCallback((id: string) => {
+    setState(prev => {
+      const next = new Set(prev.expandedFolderIds);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return { ...prev, expandedFolderIds: next };
+    });
+  }, []);
 
   const handleOpenFolder = useCallback(async (folder: FolderNode) => {
     try {
@@ -1236,7 +1324,7 @@ export default function App() {
         } else break;
       }
       setState(prev => ({ ...prev, expandedFolderIds: expanded, selectedFolderId: match.id }));
-      toggleNode(match.id);
+      handleSelectNode(match.id);
     }
   };
 
@@ -1383,19 +1471,32 @@ export default function App() {
             <svg className="absolute overflow-visible pointer-events-none" style={{ left: 0, top: 0 }}>
               <AnimatePresence>
                 {treeData.links().map((link, i) => (
-                  <motion.path
-                    key={`${link.source.data.id}-${link.target.data.id}`}
-                    initial={{ pathLength: 0, opacity: 0 }}
-                    animate={{ pathLength: 1, opacity: 1 }}
-                    exit={{ opacity: 0 }}
-                    d={`M ${link.source.y + 180} ${link.source.x} 
-                       C ${link.source.y + 230} ${link.source.x}, 
-                         ${link.target.y - 50} ${link.target.x}, 
-                         ${link.target.y} ${link.target.x}`}
-                    fill="none"
-                    stroke={highlightedFolderIds.has(link.target.data.id) ? state.theme.focusColor : state.theme.lineColor}
-                    strokeWidth={highlightedFolderIds.has(link.target.data.id) ? "2" : "1.5"}
-                  />
+                  (() => {
+                    const defaultNodeSize: NodeSize = { width: 220, height: 72 };
+                    const sourceSize = nodeSizeMap[link.source.data.id] ?? defaultNodeSize;
+                    const parentAnchorX = link.source.y + sourceSize.width;
+                    const parentAnchorY = link.source.x;
+                    const childAnchorX = link.target.y;
+                    const childAnchorY = link.target.x;
+                    const horizontalDistance = Math.max(childAnchorX - parentAnchorX, 0);
+                    const curveOffset = Math.min(80, Math.max(40, horizontalDistance / 2));
+
+                    return (
+                      <motion.path
+                        key={`${link.source.data.id}-${link.target.data.id}-${i}`}
+                        initial={{ pathLength: 0, opacity: 0 }}
+                        animate={{ pathLength: 1, opacity: 1 }}
+                        exit={{ opacity: 0 }}
+                        d={`M ${parentAnchorX} ${parentAnchorY}
+                          C ${parentAnchorX + curveOffset} ${parentAnchorY},
+                            ${childAnchorX - curveOffset} ${childAnchorY},
+                            ${childAnchorX} ${childAnchorY}`}
+                        fill="none"
+                        stroke={highlightedFolderIds.has(link.target.data.id) ? state.theme.focusColor : state.theme.lineColor}
+                        strokeWidth={highlightedFolderIds.has(link.target.data.id) ? "2" : "1.5"}
+                      />
+                    );
+                  })()
                 ))}
               </AnimatePresence>
             </svg>
@@ -1406,11 +1507,14 @@ export default function App() {
                 <FolderNodeComponent
                   key={node.data.id}
                   node={node}
+                  nodeSize={nodeSizeMap[node.data.id] ?? { width: 220, height: 72 }}
                   isSelected={state.selectedFolderId === node.data.id}
                   isHighlighted={highlightedFolderIds.has(node.data.id)}
+                  isExpanded={state.expandedFolderIds.has(node.data.id)}
                   isEditMode={isFolderEditMode}
                   isDragTarget={dragOverNodeId === node.data.id}
-                  onSelect={toggleNode}
+                  onSelect={handleSelectNode}
+                  onToggleExpand={handleToggleExpand}
                   onOpenFolder={handleOpenFolder}
                   onContextMenu={handleNodeContextMenu}
                   onDragStart={handleNodeDragStart}
@@ -1418,6 +1522,7 @@ export default function App() {
                   onDragLeave={handleNodeDragLeave}
                   onDrop={handleDropToNode}
                   onDragEnd={handleNodeDragEnd}
+                  onNodeSizeChange={handleNodeSizeChange}
                   tags={state.tags}
                   theme={state.theme}
                 />
