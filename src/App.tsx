@@ -948,20 +948,27 @@ export default function App() {
 
   const handleOpenFolder = useCallback(async (folder: FolderNode) => {
     try {
-      const folderHandle = folderHandleMapRef.current.get(folder.id);
-      // @ts-ignore
-      if (folderHandle && window.showDirectoryPicker) {
-        // @ts-ignore
-        await window.showDirectoryPicker({ startIn: folderHandle });
+      const normalizedPath = folder.path.trim();
+      const href = (() => {
+        if (!normalizedPath) return null;
+        if (/^file:\/\//i.test(normalizedPath)) return normalizedPath;
+        if (/^[a-zA-Z]:[\\/]/.test(normalizedPath)) {
+          return `file:///${encodeURI(normalizedPath.replace(/\\/g, '/'))}`;
+        }
+        if (normalizedPath.startsWith('/')) {
+          return `file://${encodeURI(normalizedPath)}`;
+        }
+        return `file://${encodeURI(`/${normalizedPath}`)}`;
+      })();
+
+      if (!href) {
+        alert(t('folderOpenFailed'));
         return;
       }
 
-      const href = folder.path.startsWith('file://')
-        ? folder.path
-        : `file://${encodeURI(folder.path)}`;
       const openedWindow = window.open(href, '_blank', 'noopener,noreferrer');
       if (!openedWindow) {
-        alert(t('folderOpenFailed'));
+        window.location.assign(href);
       }
     } catch (error) {
       console.error(error);
