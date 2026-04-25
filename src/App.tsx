@@ -62,6 +62,12 @@ interface FolderNodeProps {
   isDragTarget: boolean;
   onSelect: (id: string) => void;
   onOpenFolder: (folder: FolderNode) => void;
+  onContextMenu: (event: React.MouseEvent, folder: FolderNode) => void;
+  onDragStart: (id: string) => void;
+  onDragEnter: (id: string) => void;
+  onDragLeave: (id: string) => void;
+  onDrop: (id: string) => void;
+  onDragEnd: () => void;
   tags: Tag[];
   theme: any;
 }
@@ -74,6 +80,12 @@ const FolderNodeComponent: React.FC<FolderNodeProps> = ({
   isDragTarget,
   onSelect,
   onOpenFolder,
+  onContextMenu,
+  onDragStart,
+  onDragEnter,
+  onDragLeave,
+  onDrop,
+  onDragEnd,
   tags,
   theme
 }) => {
@@ -92,9 +104,9 @@ const FolderNodeComponent: React.FC<FolderNodeProps> = ({
         onSelect(data.id);
       }}
       onMouseDown={(e) => {
+        e.stopPropagation();
         if (e.button !== 2) return;
         e.preventDefault();
-        e.stopPropagation();
         const now = Date.now();
         if (now - lastRightClickRef.current <= 350) {
           onOpenFolder(data);
@@ -103,9 +115,48 @@ const FolderNodeComponent: React.FC<FolderNodeProps> = ({
       }}
       onContextMenu={(e) => {
         e.preventDefault();
+        e.stopPropagation();
+        onContextMenu(e, data);
+      }}
+      draggable={isEditMode}
+      onDragStart={(e) => {
+        if (!isEditMode) return;
+        e.stopPropagation();
+        e.dataTransfer.setData('text/plain', data.id);
+        e.dataTransfer.effectAllowed = 'move';
+        onDragStart(data.id);
+      }}
+      onDragEnter={(e) => {
+        if (!isEditMode) return;
+        e.preventDefault();
+        e.stopPropagation();
+        onDragEnter(data.id);
+      }}
+      onDragOver={(e) => {
+        if (!isEditMode) return;
+        e.preventDefault();
+        e.stopPropagation();
+        e.dataTransfer.dropEffect = 'move';
+      }}
+      onDragLeave={(e) => {
+        if (!isEditMode) return;
+        e.stopPropagation();
+        onDragLeave(data.id);
+      }}
+      onDrop={(e) => {
+        if (!isEditMode) return;
+        e.preventDefault();
+        e.stopPropagation();
+        onDrop(data.id);
+      }}
+      onDragEnd={(e) => {
+        if (!isEditMode) return;
+        e.stopPropagation();
+        onDragEnd();
       }}
       className={cn(
         "absolute flex items-center gap-2.5 p-2 bg-white rounded-lg border border-gray-200 transition-all cursor-pointer group shadow-sm hover:shadow-md",
+        isEditMode ? "cursor-move" : "",
         isSelected ? "ring-2 ring-blue-500/20 z-20" : "",
         isHighlighted ? "ring-2 ring-blue-400/30 border-blue-400 z-10 bg-blue-50/30" : "",
         isEditMode ? "border-blue-200 bg-blue-50/20" : "",
@@ -1164,6 +1215,29 @@ export default function App() {
     setDraggingNodeId(null);
   };
 
+  const handleNodeDragStart = (nodeId: string) => {
+    if (!isFolderEditMode) return;
+    setContextMenu(null);
+    setDraggingNodeId(nodeId);
+    setDragOverNodeId(null);
+  };
+
+  const handleNodeDragEnter = (nodeId: string) => {
+    if (!isFolderEditMode || !draggingNodeId || draggingNodeId === nodeId) return;
+    setDragOverNodeId(nodeId);
+  };
+
+  const handleNodeDragLeave = (nodeId: string) => {
+    if (dragOverNodeId === nodeId) {
+      setDragOverNodeId(null);
+    }
+  };
+
+  const handleNodeDragEnd = () => {
+    setDraggingNodeId(null);
+    setDragOverNodeId(null);
+  };
+
   return (
     <div className="flex flex-col h-screen bg-[#F3F4F6] text-[#1F2937] overflow-hidden font-sans">
       {/* --- Top Header --- */}
@@ -1214,8 +1288,12 @@ export default function App() {
           {/* Tree View Canvas */}
           <div 
             ref={containerRef}
-            className="w-full h-full cursor-grab active:cursor-grabbing relative z-10"
+            className={cn(
+              "w-full h-full relative z-10",
+              isFolderEditMode ? "cursor-default" : "cursor-grab active:cursor-grabbing"
+            )}
           onMouseDown={(e) => {
+            if (isFolderEditMode) return;
             const startX = e.clientX - viewTransform.x;
             const startY = e.clientY - viewTransform.y;
             const onMouseMove = (moveEvent: MouseEvent) => {
@@ -1275,6 +1353,12 @@ export default function App() {
                   isDragTarget={dragOverNodeId === node.data.id}
                   onSelect={toggleNode}
                   onOpenFolder={handleOpenFolder}
+                  onContextMenu={handleNodeContextMenu}
+                  onDragStart={handleNodeDragStart}
+                  onDragEnter={handleNodeDragEnter}
+                  onDragLeave={handleNodeDragLeave}
+                  onDrop={handleDropToNode}
+                  onDragEnd={handleNodeDragEnd}
                   tags={state.tags}
                   theme={state.theme}
                 />
