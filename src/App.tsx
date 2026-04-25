@@ -91,7 +91,6 @@ const FolderNodeComponent: React.FC<FolderNodeProps> = ({
 }) => {
   const data = node.data as FolderNode;
   const nodeTags = tags.filter(t => data.tags.includes(t.id));
-  const lastRightClickRef = useRef<number>(0);
 
   return (
     <motion.div
@@ -109,13 +108,9 @@ const FolderNodeComponent: React.FC<FolderNodeProps> = ({
       }}
       onMouseDown={(e) => {
         e.stopPropagation();
-        if (e.button !== 2) return;
-        e.preventDefault();
-        const now = Date.now();
-        if (now - lastRightClickRef.current <= 350) {
-          onOpenFolder(data);
+        if (e.button === 2) {
+          e.preventDefault();
         }
-        lastRightClickRef.current = now;
       }}
       onContextMenu={(e) => {
         e.preventDefault();
@@ -271,6 +266,8 @@ const TRANSLATIONS: Record<string, Record<string, string>> = {
     folderScanComplete: 'フォルダ「{name}」のスキャンが完了しました。',
     folderLoadError: 'フォルダの読み込み中にエラーが発生しました。',
     folderOpenFailed: 'フォルダを開けませんでした。ローカルフォルダを選択後にお試しください。',
+    desktopOnlyFeature: 'この機能はデスクトップアプリ版で利用できます。',
+    folderNotFound: 'フォルダが存在しません。',
     localFolder: 'ローカルフォルダ',
     bgColorLabel: 'バックグラウンドの色味',
     bgColorDesc: '全体背景のベースカラー',
@@ -356,6 +353,8 @@ const TRANSLATIONS: Record<string, Record<string, string>> = {
     folderScanComplete: 'Finished scanning folder "{name}".',
     folderLoadError: 'An error occurred while loading the folder.',
     folderOpenFailed: 'Could not open the folder. Please try after selecting a local folder.',
+    desktopOnlyFeature: 'This feature is available in the desktop app.',
+    folderNotFound: 'Folder does not exist.',
     localFolder: 'Local Folder',
     bgColorLabel: 'Background color',
     bgColorDesc: 'Base color of the app background',
@@ -798,12 +797,19 @@ export default function App() {
       // @ts-ignore
       const handle = await window.showDirectoryPicker();
       
+      const joinFolderPath = (basePath: string, name: string) => {
+        if (!basePath) return name;
+        const separator = basePath.includes('\\') ? '\\' : '/';
+        return `${basePath}${separator}${name}`;
+      };
+
       const scan = async (dirHandle: any, parentPath: string): Promise<FolderNode> => {
         const nodeId = Math.random().toString(36).substring(2, 11);
+        const nodePath = joinFolderPath(parentPath, dirHandle.name);
         const node: FolderNode = {
           id: nodeId,
           name: dirHandle.name,
-          path: `${parentPath}/${dirHandle.name}`,
+          path: nodePath,
           tags: [],
           metadata: { description: '', department: '', owner: '', remark: '' },
           children: []
@@ -819,7 +825,11 @@ export default function App() {
         return node;
       };
 
-      const rootNode = await scan(handle, '');
+      const absoluteRootPath = (handle as any).path as string | undefined;
+      const rootParentPath = absoluteRootPath
+        ? absoluteRootPath.replace(/[\\/]?[^\\/]+$/, '')
+        : '';
+      const rootNode = await scan(handle, rootParentPath);
       
       setState(prev => ({
         ...prev,
@@ -828,7 +838,7 @@ export default function App() {
         selectedFolderId: rootNode.id,
         sources: [
           ...prev.sources,
-          { id: rootNode.id, name: handle.name, path: t('localFolder'), isActive: true }
+          { id: rootNode.id, name: handle.name, path: rootNode.path, isActive: true }
         ]
       }));
       
@@ -949,27 +959,18 @@ export default function App() {
 
   const handleOpenFolder = useCallback(async (folder: FolderNode) => {
     try {
-      const normalizedPath = folder.path.trim();
-      const href = (() => {
-        if (!normalizedPath) return null;
-        if (/^file:\/\//i.test(normalizedPath)) return normalizedPath;
-        if (/^[a-zA-Z]:[\\/]/.test(normalizedPath)) {
-          return `file:///${encodeURI(normalizedPath.replace(/\\/g, '/'))}`;
-        }
-        if (normalizedPath.startsWith('/')) {
-          return `file://${encodeURI(normalizedPath)}`;
-        }
-        return `file://${encodeURI(`/${normalizedPath}`)}`;
-      })();
-
-      if (!href) {
-        alert(t('folderOpenFailed'));
+      if (!window.folderApi?.openFolder) {
+        alert(t('desktopOnlyFeature'));
         return;
       }
 
-      const openedWindow = window.open(href, '_blank', 'noopener,noreferrer');
-      if (!openedWindow) {
-        window.location.assign(href);
+      const result = await window.folderApi.openFolder(folder.path);
+      if (!result.ok) {
+        if (result.message?.includes('存在しません')) {
+          alert(t('folderNotFound'));
+          return;
+        }
+        alert(result.message || t('folderOpenFailed'));
       }
     } catch (error) {
       console.error(error);
@@ -1245,6 +1246,27 @@ export default function App() {
     setDraggingNodeId(null);
     setDragOverNodeId(null);
   };
+
+  useEffect(() => {
+    if (!contextMenu) return;
+    const handlePointerDown = (event: MouseEvent) => {
+      if (!contextMenuRef.current) return;
+      if (!contextMenuRef.current.contains(event.target as Node)) {
+        setContextMenu(null);
+      }
+    };
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setContextMenu(null);
+      }
+    };
+    window.addEventListener('mousedown', handlePointerDown);
+    window.addEventListener('keydown', handleEscape);
+    return () => {
+      window.removeEventListener('mousedown', handlePointerDown);
+      window.removeEventListener('keydown', handleEscape);
+    };
+  }, [contextMenu]);
 
   return (
     <div className="flex flex-col h-screen bg-[#F3F4F6] text-[#1F2937] overflow-hidden font-sans">
