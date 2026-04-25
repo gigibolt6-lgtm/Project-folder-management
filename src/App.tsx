@@ -18,7 +18,9 @@ import {
   Archive,
   Save,
   Trash2,
-  Globe
+  Globe,
+  GripVertical,
+  FolderPen
 } from 'lucide-react';
 import { hierarchy, tree } from 'd3-hierarchy';
 import { cn } from './lib/utils';
@@ -56,7 +58,15 @@ interface FolderNodeProps {
   node: any;
   isSelected: boolean;
   isHighlighted: boolean;
+  isEditMode: boolean;
+  isDragTarget: boolean;
   onSelect: (id: string) => void;
+  onOpenFolder: (folder: FolderNode) => void;
+  onContextMenuNode: (e: React.MouseEvent, folder: FolderNode) => void;
+  onStartDrag: (id: string) => void;
+  onDragEnterNode: (id: string) => void;
+  onDropNode: (targetId: string) => void;
+  onEndDrag: () => void;
   tags: Tag[];
   theme: any;
 }
@@ -65,7 +75,15 @@ const FolderNodeComponent: React.FC<FolderNodeProps> = ({
   node, 
   isSelected, 
   isHighlighted,
+  isEditMode,
+  isDragTarget,
   onSelect,
+  onOpenFolder,
+  onContextMenuNode,
+  onStartDrag,
+  onDragEnterNode,
+  onDropNode,
+  onEndDrag,
   tags,
   theme
 }) => {
@@ -82,10 +100,41 @@ const FolderNodeComponent: React.FC<FolderNodeProps> = ({
         e.stopPropagation();
         onSelect(data.id);
       }}
+      onMouseDown={(e) => e.stopPropagation()}
+      draggable={isEditMode}
+      onDragStart={(e) => {
+        if (!isEditMode) return;
+        e.dataTransfer.effectAllowed = 'move';
+        onStartDrag(data.id);
+      }}
+      onDragEnd={() => onEndDrag()}
+      onDragOver={(e) => {
+        if (!isEditMode) return;
+        e.preventDefault();
+        e.dataTransfer.dropEffect = 'move';
+      }}
+      onDragEnter={() => {
+        if (!isEditMode) return;
+        onDragEnterNode(data.id);
+      }}
+      onDrop={(e) => {
+        if (!isEditMode) return;
+        e.preventDefault();
+        e.stopPropagation();
+        onDropNode(data.id);
+      }}
+      onContextMenu={(e) => {
+        if (!isEditMode) return;
+        e.preventDefault();
+        e.stopPropagation();
+        onContextMenuNode(e, data);
+      }}
       className={cn(
         "absolute flex items-center gap-2.5 p-2 bg-white rounded-lg border border-gray-200 transition-all cursor-pointer group shadow-sm hover:shadow-md",
         isSelected ? "ring-2 ring-blue-500/20 z-20" : "",
-        isHighlighted ? "ring-2 ring-blue-400/30 border-blue-400 z-10 bg-blue-50/30" : ""
+        isHighlighted ? "ring-2 ring-blue-400/30 border-blue-400 z-10 bg-blue-50/30" : "",
+        isEditMode ? "border-blue-200 bg-blue-50/20" : "",
+        isDragTarget ? "ring-2 ring-blue-400 border-blue-400 bg-blue-100/40" : ""
       )}
       style={{
         left: node.y,
@@ -95,16 +144,25 @@ const FolderNodeComponent: React.FC<FolderNodeProps> = ({
         borderColor: isSelected ? theme.focusColor : undefined
       }}
     >
-      <div className={cn(
-        "p-1.5 rounded bg-gray-50 group-hover:bg-blue-50 transition-colors",
-        isSelected && "bg-blue-50"
-      )}
-      style={isSelected ? { color: theme.focusColor } : { color: theme.folderColor }}>
+      <div
+        className={cn(
+          "p-1.5 rounded bg-gray-50 group-hover:bg-blue-50 transition-colors",
+          isSelected && "bg-blue-50"
+        )}
+        style={isSelected ? { color: theme.focusColor } : { color: theme.folderColor }}
+        onDoubleClick={(e) => {
+          e.stopPropagation();
+          onOpenFolder(data);
+        }}
+      >
         <Folder size={18} className={cn(isSelected ? "fill-current opacity-20" : "")} />
       </div>
       
       <div className="flex-1 overflow-hidden">
-        <div className="text-xs font-bold text-gray-900 truncate tracking-tight">{data.name}</div>
+        <div className="flex items-center justify-between gap-2">
+          <div className="text-xs font-bold text-gray-900 truncate tracking-tight">{data.name}</div>
+          {isEditMode && <GripVertical size={12} className="text-blue-400 shrink-0" />}
+        </div>
         <div className="flex flex-wrap gap-0.5 mt-1">
           {nodeTags.slice(0, 3).map(t => (
             <div 
@@ -130,6 +188,18 @@ const FolderNodeComponent: React.FC<FolderNodeProps> = ({
     </motion.div>
   );
 };
+
+type ContextMenuState = {
+  x: number;
+  y: number;
+  folderId: string;
+} | null;
+
+type FolderDialogState =
+  | { type: 'rename'; folderId: string; value: string }
+  | { type: 'create'; folderId: string; value: string }
+  | { type: 'delete'; folderId: string }
+  | null;
 
 // --- Translation ---
 const TRANSLATIONS: Record<string, Record<string, string>> = {
@@ -168,12 +238,13 @@ const TRANSLATIONS: Record<string, Record<string, string>> = {
     folderDescriptionPlaceholder: 'フォルダの説明...',
     assignHint: 'タグを付与するには、ツリーからフォルダを選択してください。',
     connectionTo: '接続先',
+    online: 'オンライン',
     totalFolders: '総フォルダ数',
-    systemDiagnosticOk: 'システム診断: OK',
     browserNotSupported: 'お使いのブラウザはローカルフォルダの選択に対応していないか、セキュリティ動作が制限されています。Chrome/Edgeの最新版をご利用ください。',
     iframeRestriction: 'セキュリティ上の理由により、プレビュー画面（iframe）内ではローカルフォルダを選択できません。\n\n右上の「新規タブで開く」ボタンからアプリを別画面で開いてお試しください。',
     folderScanComplete: 'フォルダ「{name}」のスキャンが完了しました。',
     folderLoadError: 'フォルダの読み込み中にエラーが発生しました。',
+    folderOpenFailed: 'フォルダを開けませんでした。ローカルフォルダを選択後にお試しください。',
     localFolder: 'ローカルフォルダ',
     bgColorLabel: 'バックグラウンドの色味',
     bgColorDesc: '全体背景のベースカラー',
@@ -183,6 +254,33 @@ const TRANSLATIONS: Record<string, Record<string, string>> = {
     focusColorDesc: '選択・ハイライト時の強調色',
     lineColorLabel: '連結ラインの色味',
     lineColorDesc: 'フォルダ同士を繋ぐ線の色',
+    folderEditModeSettings: 'フォルダ編集モード',
+    folderEditModeTitle: 'フォルダ編集モード',
+    folderEditModeDescription: 'ONにするとドラッグ移動・右クリック編集（名前変更/子作成/削除）が有効になります。',
+    folderEditModeOn: 'フォルダ編集モード ON',
+    folderEditModeHint: 'ドラッグでフォルダ移動、右クリックで編集できます',
+    renameFolder: 'フォルダ名変更',
+    createChildFolder: '子フォルダ作成',
+    deleteFolder: 'フォルダ削除',
+    cancel: 'キャンセル',
+    rename: '変更',
+    create: '作成',
+    delete: '削除',
+    createChildFolderDescription: '選択中のフォルダ内に新しい子フォルダを作成します',
+    confirmDeleteFolder: 'このフォルダを削除しますか？',
+    confirmDeleteWarning: 'この操作により配下のファイル・フォルダも削除されます（ゴミ箱移動ではありません）。',
+    emptyFolderName: 'フォルダ名を入力してください',
+    invalidFolderName: 'フォルダ名に使用できない文字が含まれています',
+    folderNameUnchanged: '名前が変更されていません',
+    folderAlreadyExists: '同じ名前のフォルダが既に存在します',
+    cannotMoveToSelf: 'このフォルダは自身の配下へ移動できません',
+    cannotMoveRoot: 'ルートフォルダは移動できません',
+    moveFailed: 'フォルダの移動に失敗しました。アクセス権限を確認してください',
+    renameFailed: 'フォルダ名変更に失敗しました',
+    createFailed: '子フォルダ作成に失敗しました',
+    deleteFailed: 'フォルダ削除に失敗しました',
+    editModeTagDisabled: 'フォルダ編集モード中はタグ操作できません',
+    operationNotSupported: 'このブラウザ環境ではフォルダ編集の一部操作に制約があります',
     langName_ja: '日本語',
     langName_en: '英語',
     langName_th: 'タイ語',
@@ -225,12 +323,13 @@ const TRANSLATIONS: Record<string, Record<string, string>> = {
     folderDescriptionPlaceholder: 'Folder description...',
     assignHint: 'Select a folder from the tree to assign tags.',
     connectionTo: 'Connected to',
+    online: 'Online',
     totalFolders: 'Total folders',
-    systemDiagnosticOk: 'System Diagnostic: OK',
     browserNotSupported: 'Your browser does not support local folder selection or security policies are restricting it. Please use the latest Chrome/Edge.',
     iframeRestriction: 'For security reasons, local folders cannot be selected in the preview (iframe).\n\nPlease open the app in a separate tab using the top-right button and try again.',
     folderScanComplete: 'Finished scanning folder "{name}".',
     folderLoadError: 'An error occurred while loading the folder.',
+    folderOpenFailed: 'Could not open the folder. Please try after selecting a local folder.',
     localFolder: 'Local Folder',
     bgColorLabel: 'Background color',
     bgColorDesc: 'Base color of the app background',
@@ -240,6 +339,33 @@ const TRANSLATIONS: Record<string, Record<string, string>> = {
     focusColorDesc: 'Accent color for selection/highlight',
     lineColorLabel: 'Connector line color',
     lineColorDesc: 'Color of lines connecting folders',
+    folderEditModeSettings: 'Folder Edit Mode',
+    folderEditModeTitle: 'Folder Edit Mode',
+    folderEditModeDescription: 'When ON, drag/move and context menu edits (rename/create child/delete) are enabled.',
+    folderEditModeOn: 'Folder Edit Mode ON',
+    folderEditModeHint: 'Drag to move folders, right-click to edit',
+    renameFolder: 'Rename Folder',
+    createChildFolder: 'Create Child Folder',
+    deleteFolder: 'Delete Folder',
+    cancel: 'Cancel',
+    rename: 'Rename',
+    create: 'Create',
+    delete: 'Delete',
+    createChildFolderDescription: 'Create a new child folder inside the selected folder.',
+    confirmDeleteFolder: 'Do you want to delete this folder?',
+    confirmDeleteWarning: 'All nested files and folders will be permanently deleted (not moved to trash).',
+    emptyFolderName: 'Please enter a folder name',
+    invalidFolderName: 'Folder name contains invalid characters',
+    folderNameUnchanged: 'Folder name was not changed',
+    folderAlreadyExists: 'A folder with the same name already exists',
+    cannotMoveToSelf: 'This folder cannot be moved into itself',
+    cannotMoveRoot: 'Root folder cannot be moved',
+    moveFailed: 'Failed to move folder. Please check access permissions',
+    renameFailed: 'Failed to rename folder',
+    createFailed: 'Failed to create child folder',
+    deleteFailed: 'Failed to delete folder',
+    editModeTagDisabled: 'Tag actions are disabled while folder edit mode is ON',
+    operationNotSupported: 'Some folder edit operations are not supported in this browser environment',
     langName_ja: 'Japanese',
     langName_en: 'English',
     langName_th: 'Thai',
@@ -248,6 +374,55 @@ const TRANSLATIONS: Record<string, Record<string, string>> = {
     langName_pl: 'Polish',
   },
   th: {
+    appTitle: 'ตัวจัดการแท็กโครงสร้างเอกสาร',
+    searchPlaceholder: 'ค้นหาโฟลเดอร์หรือแท็ก...',
+    search: 'ค้นหา',
+    infoPanelTitle: 'รายละเอียด',
+    save: 'บันทึก',
+    folderName: 'ชื่อโฟลเดอร์',
+    fullPath: 'พาธเต็ม',
+    description: 'คำอธิบาย',
+    department: 'แผนก',
+    owner: 'ผู้รับผิดชอบ',
+    remark: 'หมายเหตุ',
+    tags: 'แท็ก',
+    assign: 'กำหนด',
+    tagSearch: 'ค้นหา',
+    newTag: 'ใหม่',
+    noSelection: 'ยังไม่ได้เลือกโฟลเดอร์',
+    settings: 'การตั้งค่า',
+    rootSettings: 'การตั้งค่าโฟลเดอร์ราก',
+    langSettings: 'การตั้งค่าภาษา',
+    tagSettings: 'การตั้งค่าแท็ก',
+    envSettings: 'การตั้งค่าสภาพแวดล้อม',
+    regRoots: 'โฟลเดอร์รากที่ลงทะเบียน',
+    addRoot: 'เพิ่มโฟลเดอร์ราก',
+    addTag: 'เพิ่มแท็ก',
+    colorEdit: 'ปรับแต่งสี',
+    selectLocalFolder: 'เลือกโฟลเดอร์ภายในเครื่อง',
+    virtualRoot: 'โฟลเดอร์รากเสมือน',
+    promptFolderDisplayName: 'ชื่อที่แสดงของโฟลเดอร์',
+    promptFolderPath: 'พาธโฟลเดอร์ (ใส่พาธในเครื่องได้)',
+    promptTagName: 'ชื่อแท็ก',
+    folderDescriptionPlaceholder: 'คำอธิบายโฟลเดอร์...',
+    assignHint: 'เลือกโฟลเดอร์จากต้นไม้เพื่อกำหนดแท็ก',
+    connectionTo: 'เชื่อมต่อกับ',
+    online: 'ออนไลน์',
+    totalFolders: 'จำนวนโฟลเดอร์ทั้งหมด',
+    browserNotSupported: 'เบราว์เซอร์ของคุณไม่รองรับการเลือกโฟลเดอร์ในเครื่อง หรือถูกจำกัดด้วยนโยบายความปลอดภัย โปรดใช้ Chrome/Edge เวอร์ชันล่าสุด',
+    iframeRestriction: 'ด้วยเหตุผลด้านความปลอดภัย ไม่สามารถเลือกโฟลเดอร์ในเครื่องจากหน้าพรีวิว (iframe) ได้\n\nโปรดเปิดแอปในแท็บใหม่จากปุ่มมุมขวาบนแล้วลองอีกครั้ง',
+    folderScanComplete: 'สแกนโฟลเดอร์ \"{name}\" เสร็จสิ้นแล้ว',
+    folderLoadError: 'เกิดข้อผิดพลาดขณะโหลดโฟลเดอร์',
+    folderOpenFailed: 'ไม่สามารถเปิดโฟลเดอร์ได้ โปรดลองหลังจากเลือกโฟลเดอร์ในเครื่อง',
+    localFolder: 'โฟลเดอร์ในเครื่อง',
+    bgColorLabel: 'สีพื้นหลัง',
+    bgColorDesc: 'สีพื้นฐานของพื้นหลังแอป',
+    folderColorLabel: 'สีไอคอนโฟลเดอร์',
+    folderColorDesc: 'สีหลักของไอคอนโฟลเดอร์',
+    focusColorLabel: 'สีเน้นโฟกัส',
+    focusColorDesc: 'สีเน้นสำหรับการเลือก/ไฮไลต์',
+    lineColorLabel: 'สีเส้นเชื่อม',
+    lineColorDesc: 'สีของเส้นที่เชื่อมโฟลเดอร์',
     langSelect: 'เลือกภาษา',
     langName_ja: 'ภาษาญี่ปุ่น',
     langName_en: 'ภาษาอังกฤษ',
@@ -257,6 +432,55 @@ const TRANSLATIONS: Record<string, Record<string, string>> = {
     langName_pl: 'ภาษาโปแลนด์',
   },
   zh: {
+    appTitle: '文档结构标签管理器',
+    searchPlaceholder: '搜索文件夹或标签...',
+    search: '搜索',
+    infoPanelTitle: '详细信息',
+    save: '保存',
+    folderName: '文件夹名称',
+    fullPath: '完整路径',
+    description: '说明',
+    department: '部门',
+    owner: '负责人',
+    remark: '备注',
+    tags: '标签',
+    assign: '分配',
+    tagSearch: '搜索',
+    newTag: '新建',
+    noSelection: '未选择文件夹',
+    settings: '设置',
+    rootSettings: '根文件夹设置',
+    langSettings: '语言设置',
+    tagSettings: '标签设置',
+    envSettings: '环境设置',
+    regRoots: '已注册根目录',
+    addRoot: '添加根文件夹',
+    addTag: '添加标签',
+    colorEdit: '颜色自定义',
+    selectLocalFolder: '选择本地文件夹',
+    virtualRoot: '虚拟根目录',
+    promptFolderDisplayName: '文件夹显示名称',
+    promptFolderPath: '文件夹路径（可输入本地路径）',
+    promptTagName: '标签名称',
+    folderDescriptionPlaceholder: '文件夹说明...',
+    assignHint: '请先从树中选择一个文件夹再分配标签。',
+    connectionTo: '连接到',
+    online: '在线',
+    totalFolders: '文件夹总数',
+    browserNotSupported: '您的浏览器不支持本地文件夹选择，或受到安全策略限制。请使用最新版 Chrome/Edge。',
+    iframeRestriction: '出于安全原因，无法在预览页面（iframe）中选择本地文件夹。\n\n请点击右上角按钮在新标签页打开应用后再试。',
+    folderScanComplete: '文件夹“{name}”扫描完成。',
+    folderLoadError: '加载文件夹时发生错误。',
+    folderOpenFailed: '无法打开文件夹。请先选择本地文件夹后重试。',
+    localFolder: '本地文件夹',
+    bgColorLabel: '背景颜色',
+    bgColorDesc: '应用背景的基础色',
+    folderColorLabel: '文件夹图标颜色',
+    folderColorDesc: '文件夹图标主色',
+    focusColorLabel: '焦点高亮颜色',
+    focusColorDesc: '选择/高亮时的强调色',
+    lineColorLabel: '连接线颜色',
+    lineColorDesc: '连接文件夹线条的颜色',
     langSelect: '选择语言',
     langName_ja: '日语',
     langName_en: '英语',
@@ -266,6 +490,55 @@ const TRANSLATIONS: Record<string, Record<string, string>> = {
     langName_pl: '波兰语',
   },
   tl: {
+    appTitle: 'Tag Manager ng Istruktura ng Dokumento',
+    searchPlaceholder: 'Maghanap ng folder o tag...',
+    search: 'Maghanap',
+    infoPanelTitle: 'Detalye',
+    save: 'I-save',
+    folderName: 'Pangalan ng Folder',
+    fullPath: 'Buong Path',
+    description: 'Paglalarawan',
+    department: 'Departamento',
+    owner: 'May-ari',
+    remark: 'Puna',
+    tags: 'Mga Tag',
+    assign: 'I-assign',
+    tagSearch: 'Maghanap',
+    newTag: 'Bago',
+    noSelection: 'Walang napiling folder',
+    settings: 'Mga Setting',
+    rootSettings: 'Setting ng Root Folder',
+    langSettings: 'Setting ng Wika',
+    tagSettings: 'Setting ng Tag',
+    envSettings: 'Setting ng Environment',
+    regRoots: 'Naka-rehistrong Root',
+    addRoot: 'Magdagdag ng Root Folder',
+    addTag: 'Magdagdag ng Tag',
+    colorEdit: 'Pag-customize ng Kulay',
+    selectLocalFolder: 'Pumili ng Lokal na Folder',
+    virtualRoot: 'Virtual Root',
+    promptFolderDisplayName: 'Display name ng folder',
+    promptFolderPath: 'Path ng folder (puwedeng local path)',
+    promptTagName: 'Pangalan ng tag',
+    folderDescriptionPlaceholder: 'Paglalarawan ng folder...',
+    assignHint: 'Pumili muna ng folder mula sa tree bago mag-assign ng tag.',
+    connectionTo: 'Konektado sa',
+    online: 'Online',
+    totalFolders: 'Kabuuang Folder',
+    browserNotSupported: 'Hindi suportado ng browser mo ang pagpili ng local folder o may security restriction. Gumamit ng pinakabagong Chrome/Edge.',
+    iframeRestriction: 'Dahil sa seguridad, hindi maaaring pumili ng local folder sa preview (iframe).\n\nBuksan ang app sa bagong tab gamit ang button sa kanang-itaas at subukan muli.',
+    folderScanComplete: 'Tapos na ang pag-scan sa folder na \"{name}\".',
+    folderLoadError: 'May error habang nilo-load ang folder.',
+    folderOpenFailed: 'Hindi mabuksan ang folder. Subukan muli matapos pumili ng local folder.',
+    localFolder: 'Lokal na Folder',
+    bgColorLabel: 'Kulay ng Background',
+    bgColorDesc: 'Base na kulay ng background ng app',
+    folderColorLabel: 'Kulay ng Icon ng Folder',
+    folderColorDesc: 'Pangunahing kulay ng folder icons',
+    focusColorLabel: 'Kulay ng Focus Highlight',
+    focusColorDesc: 'Accent color para sa selection/highlight',
+    lineColorLabel: 'Kulay ng Connecting Line',
+    lineColorDesc: 'Kulay ng mga linyang nagdurugtong sa folders',
     langSelect: 'Pumili ng Wika',
     langName_ja: 'Hapon',
     langName_en: 'Ingles',
@@ -275,6 +548,55 @@ const TRANSLATIONS: Record<string, Record<string, string>> = {
     langName_pl: 'Polish',
   },
   pl: {
+    appTitle: 'Menedżer tagów struktury dokumentów',
+    searchPlaceholder: 'Szukaj folderów lub tagów...',
+    search: 'Szukaj',
+    infoPanelTitle: 'Szczegóły',
+    save: 'Zapisz',
+    folderName: 'Nazwa folderu',
+    fullPath: 'Pełna ścieżka',
+    description: 'Opis',
+    department: 'Dział',
+    owner: 'Właściciel',
+    remark: 'Uwagi',
+    tags: 'Tagi',
+    assign: 'Przypisz',
+    tagSearch: 'Szukaj',
+    newTag: 'Nowy',
+    noSelection: 'Nie wybrano folderu',
+    settings: 'Ustawienia',
+    rootSettings: 'Ustawienia folderu głównego',
+    langSettings: 'Ustawienia języka',
+    tagSettings: 'Ustawienia tagów',
+    envSettings: 'Ustawienia środowiska',
+    regRoots: 'Zarejestrowane foldery główne',
+    addRoot: 'Dodaj folder główny',
+    addTag: 'Dodaj tag',
+    colorEdit: 'Dostosowanie kolorów',
+    selectLocalFolder: 'Wybierz folder lokalny',
+    virtualRoot: 'Wirtualny folder główny',
+    promptFolderDisplayName: 'Nazwa wyświetlana folderu',
+    promptFolderPath: 'Ścieżka folderu (może być lokalna)',
+    promptTagName: 'Nazwa tagu',
+    folderDescriptionPlaceholder: 'Opis folderu...',
+    assignHint: 'Wybierz folder z drzewa, aby przypisać tagi.',
+    connectionTo: 'Połączono z',
+    online: 'Online',
+    totalFolders: 'Łączna liczba folderów',
+    browserNotSupported: 'Twoja przeglądarka nie obsługuje wyboru lokalnych folderów lub ogranicza to polityka bezpieczeństwa. Użyj najnowszej wersji Chrome/Edge.',
+    iframeRestriction: 'Ze względów bezpieczeństwa nie można wybierać lokalnych folderów w podglądzie (iframe).\n\nOtwórz aplikację w nowej karcie przyciskiem w prawym górnym rogu i spróbuj ponownie.',
+    folderScanComplete: 'Skanowanie folderu „{name}” zakończone.',
+    folderLoadError: 'Wystąpił błąd podczas ładowania folderu.',
+    folderOpenFailed: 'Nie udało się otworzyć folderu. Spróbuj ponownie po wybraniu folderu lokalnego.',
+    localFolder: 'Folder lokalny',
+    bgColorLabel: 'Kolor tła',
+    bgColorDesc: 'Bazowy kolor tła aplikacji',
+    folderColorLabel: 'Kolor ikony folderu',
+    folderColorDesc: 'Główny kolor ikon folderów',
+    focusColorLabel: 'Kolor podświetlenia fokusu',
+    focusColorDesc: 'Kolor akcentu dla wyboru/podświetlenia',
+    lineColorLabel: 'Kolor linii łączącej',
+    lineColorDesc: 'Kolor linii łączących foldery',
     langSelect: 'Wybierz język',
     langName_ja: 'Japoński',
     langName_en: 'Angielski',
@@ -312,9 +634,22 @@ export default function App() {
     return Object.entries(vars).reduce((acc, [k, v]) => acc.replaceAll(`{${k}}`, v), template);
   };
 
-  const [settingsCategory, setSettingsCategory] = useState<'root' | 'lang' | 'tags' | 'env'>('root');
+  const [settingsCategory, setSettingsCategory] = useState<'root' | 'lang' | 'tags' | 'env' | 'edit'>('root');
   const [viewTransform, setViewTransform] = useState({ x: 100, y: 300, k: 1 });
   const containerRef = useRef<HTMLDivElement>(null);
+  const folderHandleMapRef = useRef<Map<string, any>>(new Map());
+  const [isFolderEditMode, setIsFolderEditMode] = useState(false);
+  const [draggingNodeId, setDraggingNodeId] = useState<string | null>(null);
+  const [dragOverNodeId, setDragOverNodeId] = useState<string | null>(null);
+  const [contextMenu, setContextMenu] = useState<ContextMenuState>(null);
+  const [dialogState, setDialogState] = useState<FolderDialogState>(null);
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
+
+  useEffect(() => {
+    const close = () => setContextMenu(null);
+    window.addEventListener('click', close);
+    return () => window.removeEventListener('click', close);
+  }, []);
 
   // --- Local Folder Scanning Logic ---
   const handleSelectLocalFolder = async () => {
@@ -337,14 +672,16 @@ export default function App() {
       const handle = await window.showDirectoryPicker();
       
       const scan = async (dirHandle: any, parentPath: string): Promise<FolderNode> => {
+        const nodeId = Math.random().toString(36).substring(2, 11);
         const node: FolderNode = {
-          id: Math.random().toString(36).substring(2, 11),
+          id: nodeId,
           name: dirHandle.name,
           path: `${parentPath}/${dirHandle.name}`,
           tags: [],
           metadata: { description: '', department: '', owner: '', remark: '' },
           children: []
         };
+        folderHandleMapRef.current.set(nodeId, dirHandle);
 
         for await (const entry of dirHandle.values()) {
           if (entry.kind === 'directory') {
@@ -392,6 +729,38 @@ export default function App() {
   const selectedFolder = useMemo(() => 
     flatData.find(f => f.id === state.selectedFolderId)
   , [flatData, state.selectedFolderId]);
+
+  const showToast = useCallback((message: string) => {
+    setToastMessage(message);
+    window.setTimeout(() => setToastMessage(null), 2800);
+  }, []);
+
+  const getFolderById = useCallback((id: string) => flatData.find(f => f.id === id), [flatData]);
+
+  const INVALID_FOLDER_CHARS = /[\\/:*?"<>|]/;
+  const sanitizeFolderName = (value: string) => value.trim();
+
+  const updateNodeAndDescendantPaths = (node: FolderNode, parentPath: string): FolderNode => {
+    const nextPath = `${parentPath}/${node.name}`.replace(/\/+/g, '/');
+    return {
+      ...node,
+      path: nextPath,
+      children: node.children?.map(child => updateNodeAndDescendantPaths(child, nextPath))
+    };
+  };
+
+  const remapHandlesForSubtree = useCallback(async (node: FolderNode, dirHandle: any) => {
+    folderHandleMapRef.current.set(node.id, dirHandle);
+    for (const child of node.children ?? []) {
+      const childHandle = await dirHandle.getDirectoryHandle(child.name);
+      await remapHandlesForSubtree(child, childHandle);
+    }
+  }, []);
+
+  const removeHandlesForSubtree = (node: FolderNode) => {
+    folderHandleMapRef.current.delete(node.id);
+    (node.children ?? []).forEach(removeHandlesForSubtree);
+  };
 
   // --- Tree Layout Calculation ---
   const treeData = useMemo(() => {
@@ -451,6 +820,99 @@ export default function App() {
     }
   }, [treeData]);
 
+  const handleOpenFolder = useCallback(async (folder: FolderNode) => {
+    try {
+      const folderHandle = folderHandleMapRef.current.get(folder.id);
+      // @ts-ignore
+      if (folderHandle && window.showDirectoryPicker) {
+        // @ts-ignore
+        await window.showDirectoryPicker({ startIn: folderHandle });
+        return;
+      }
+
+      const href = folder.path.startsWith('file://')
+        ? folder.path
+        : `file://${encodeURI(folder.path)}`;
+      const openedWindow = window.open(href, '_blank', 'noopener,noreferrer');
+      if (!openedWindow) {
+        alert(t('folderOpenFailed'));
+      }
+    } catch (error) {
+      console.error(error);
+      alert(t('folderOpenFailed'));
+    }
+  }, [t]);
+
+  const isDescendant = useCallback((ancestorId: string, targetId: string) => {
+    let current = getFolderById(targetId);
+    while (current?.parentId) {
+      if (current.parentId === ancestorId) return true;
+      current = getFolderById(current.parentId);
+    }
+    return false;
+  }, [getFolderById]);
+
+  const moveNodeInState = (nodes: FolderNode[], sourceId: string, targetId: string): FolderNode[] => {
+    let sourceNode: FolderNode | null = null;
+    const removeNode = (items: FolderNode[]): FolderNode[] => items
+      .map(item => {
+        if (item.id === sourceId) {
+          sourceNode = item;
+          return null;
+        }
+        if (item.children) return { ...item, children: removeNode(item.children).filter(Boolean) as FolderNode[] };
+        return item;
+      })
+      .filter(Boolean) as FolderNode[];
+
+    const treeWithoutSource = removeNode(nodes);
+    if (!sourceNode) return nodes;
+
+    const insertNode = (items: FolderNode[]): FolderNode[] => items.map(item => {
+      if (item.id === targetId) {
+        const movedNode = updateNodeAndDescendantPaths(sourceNode!, item.path);
+        return { ...item, children: [...(item.children ?? []), movedNode] };
+      }
+      return { ...item, children: item.children ? insertNode(item.children) : item.children };
+    });
+
+    return insertNode(treeWithoutSource);
+  };
+
+  const renameNodeInState = (nodes: FolderNode[], folderId: string, newName: string): FolderNode[] =>
+    nodes.map(node => {
+      if (node.id === folderId) {
+        const parentPath = node.path.substring(0, node.path.lastIndexOf('/')) || '';
+        return updateNodeAndDescendantPaths({ ...node, name: newName }, parentPath);
+      }
+      return { ...node, children: node.children ? renameNodeInState(node.children, folderId, newName) : node.children };
+    });
+
+  const addChildNodeInState = (nodes: FolderNode[], folderId: string, child: FolderNode): FolderNode[] =>
+    nodes.map(node => {
+      if (node.id === folderId) {
+        return { ...node, children: [...(node.children ?? []), child] };
+      }
+      return { ...node, children: node.children ? addChildNodeInState(node.children, folderId, child) : node.children };
+    });
+
+  const deleteNodeInState = (nodes: FolderNode[], folderId: string): FolderNode[] =>
+    nodes
+      .map(node => {
+        if (node.id === folderId) return null;
+        return { ...node, children: node.children ? deleteNodeInState(node.children, folderId) : node.children };
+      })
+      .filter(Boolean) as FolderNode[];
+
+  const ensureNoDuplicateFolder = async (parentHandle: any, name: string) => {
+    try {
+      await parentHandle.getDirectoryHandle(name);
+      return false;
+    } catch {
+      return true;
+    }
+  };
+
   const handleMetadataChange = (id: string, field: keyof FolderMetadata, value: string) => {
     setState(prev => {
       const updateItems = (nodes: FolderNode[]): FolderNode[] => 
@@ -462,7 +924,162 @@ export default function App() {
     });
   };
 
+  const handleMoveNode = useCallback(async (sourceId: string, targetId: string) => {
+    const source = getFolderById(sourceId);
+    const target = getFolderById(targetId);
+    if (!source || !target) return;
+    if (!source.parentId) return showToast(t('cannotMoveRoot'));
+    if (sourceId === targetId || isDescendant(sourceId, targetId)) {
+      return showToast(t('cannotMoveToSelf'));
+    }
+
+    try {
+      const sourceParentHandle = folderHandleMapRef.current.get(source.parentId);
+      const sourceHandle = folderHandleMapRef.current.get(sourceId);
+      const targetHandle = folderHandleMapRef.current.get(targetId);
+      if (!sourceParentHandle || !sourceHandle || !targetHandle) {
+        return showToast(t('operationNotSupported'));
+      }
+
+      const canCreate = await ensureNoDuplicateFolder(targetHandle, source.name);
+      if (!canCreate) return showToast(t('folderAlreadyExists'));
+
+      const copiedHandle = await targetHandle.getDirectoryHandle(source.name, { create: true });
+      const copyRecursive = async (fromDir: any, toDir: any) => {
+        for await (const entry of fromDir.values()) {
+          if (entry.kind === 'directory') {
+            const child = await toDir.getDirectoryHandle(entry.name, { create: true });
+            await copyRecursive(entry, child);
+          } else if (entry.kind === 'file') {
+            const file = await entry.getFile();
+            const newFileHandle = await toDir.getFileHandle(entry.name, { create: true });
+            const writable = await newFileHandle.createWritable();
+            await writable.write(await file.arrayBuffer());
+            await writable.close();
+          }
+        }
+      };
+      await copyRecursive(sourceHandle, copiedHandle);
+      await sourceParentHandle.removeEntry(source.name, { recursive: true });
+
+      setState(prev => ({
+        ...prev,
+        items: moveNodeInState(prev.items, sourceId, targetId),
+        expandedFolderIds: new Set([...prev.expandedFolderIds, targetId]),
+      }));
+
+      const latestSource = getFolderById(sourceId);
+      if (latestSource) {
+        await remapHandlesForSubtree(latestSource, copiedHandle);
+      }
+    } catch (error) {
+      console.error(error);
+      showToast(t('moveFailed'));
+    }
+  }, [ensureNoDuplicateFolder, getFolderById, isDescendant, remapHandlesForSubtree, showToast, t]);
+
+  const executeRenameFolder = useCallback(async (folderId: string, rawName: string) => {
+    const folder = getFolderById(folderId);
+    if (!folder || !folder.parentId) return;
+    const nextName = sanitizeFolderName(rawName);
+    if (!nextName) return showToast(t('emptyFolderName'));
+    if (INVALID_FOLDER_CHARS.test(nextName)) return showToast(t('invalidFolderName'));
+    if (nextName === folder.name) return showToast(t('folderNameUnchanged'));
+
+    try {
+      const parentHandle = folderHandleMapRef.current.get(folder.parentId);
+      const sourceHandle = folderHandleMapRef.current.get(folderId);
+      if (!parentHandle || !sourceHandle) return showToast(t('operationNotSupported'));
+      const canCreate = await ensureNoDuplicateFolder(parentHandle, nextName);
+      if (!canCreate) return showToast(t('folderAlreadyExists'));
+
+      const targetHandle = await parentHandle.getDirectoryHandle(nextName, { create: true });
+      const copyRecursive = async (fromDir: any, toDir: any) => {
+        for await (const entry of fromDir.values()) {
+          if (entry.kind === 'directory') {
+            const child = await toDir.getDirectoryHandle(entry.name, { create: true });
+            await copyRecursive(entry, child);
+          } else if (entry.kind === 'file') {
+            const file = await entry.getFile();
+            const newFileHandle = await toDir.getFileHandle(entry.name, { create: true });
+            const writable = await newFileHandle.createWritable();
+            await writable.write(await file.arrayBuffer());
+            await writable.close();
+          }
+        }
+      };
+      await copyRecursive(sourceHandle, targetHandle);
+      await parentHandle.removeEntry(folder.name, { recursive: true });
+
+      setState(prev => ({ ...prev, items: renameNodeInState(prev.items, folderId, nextName) }));
+      await remapHandlesForSubtree({ ...folder, name: nextName }, targetHandle);
+    } catch (error) {
+      console.error(error);
+      showToast(t('renameFailed'));
+    }
+  }, [ensureNoDuplicateFolder, getFolderById, remapHandlesForSubtree, showToast, t]);
+
+  const executeCreateChildFolder = useCallback(async (folderId: string, rawName: string) => {
+    const folder = getFolderById(folderId);
+    if (!folder) return;
+    const nextName = sanitizeFolderName(rawName);
+    if (!nextName) return showToast(t('emptyFolderName'));
+    if (INVALID_FOLDER_CHARS.test(nextName)) return showToast(t('invalidFolderName'));
+
+    try {
+      const parentHandle = folderHandleMapRef.current.get(folderId);
+      if (!parentHandle) return showToast(t('operationNotSupported'));
+      const canCreate = await ensureNoDuplicateFolder(parentHandle, nextName);
+      if (!canCreate) return showToast(t('folderAlreadyExists'));
+
+      const newHandle = await parentHandle.getDirectoryHandle(nextName, { create: true });
+      const newNode: FolderNode = {
+        id: Math.random().toString(36).substring(2, 11),
+        name: nextName,
+        path: `${folder.path}/${nextName}`,
+        tags: [],
+        metadata: { description: '', department: '', owner: '', remark: '' },
+        children: []
+      };
+
+      setState(prev => ({
+        ...prev,
+        items: addChildNodeInState(prev.items, folderId, newNode),
+        selectedFolderId: newNode.id,
+        expandedFolderIds: new Set([...prev.expandedFolderIds, folderId]),
+      }));
+      folderHandleMapRef.current.set(newNode.id, newHandle);
+    } catch (error) {
+      console.error(error);
+      showToast(t('createFailed'));
+    }
+  }, [ensureNoDuplicateFolder, getFolderById, showToast, t]);
+
+  const executeDeleteFolder = useCallback(async (folderId: string) => {
+    const folder = getFolderById(folderId);
+    if (!folder || !folder.parentId) return showToast(t('cannotMoveRoot'));
+    try {
+      const parentHandle = folderHandleMapRef.current.get(folder.parentId);
+      if (!parentHandle) return showToast(t('operationNotSupported'));
+      await parentHandle.removeEntry(folder.name, { recursive: true });
+
+      setState(prev => ({
+        ...prev,
+        items: deleteNodeInState(prev.items, folderId),
+        selectedFolderId: prev.selectedFolderId === folderId ? folder.parentId : prev.selectedFolderId,
+      }));
+      removeHandlesForSubtree(folder);
+    } catch (error) {
+      console.error(error);
+      showToast(t('deleteFailed'));
+    }
+  }, [getFolderById, showToast, t]);
+
   const toggleTag = (tagId: string) => {
+    if (isFolderEditMode) {
+      showToast(t('editModeTagDisabled'));
+      return;
+    }
     if (state.tagMode === 'assign') {
       if (!state.selectedFolderId) return;
       setState(prev => {
@@ -529,6 +1146,19 @@ export default function App() {
     }
   };
 
+  const handleNodeContextMenu = (e: React.MouseEvent, folder: FolderNode) => {
+    if (!isFolderEditMode) return;
+    setContextMenu({ x: e.clientX, y: e.clientY, folderId: folder.id });
+  };
+
+  const handleDropToNode = async (targetId: string) => {
+    if (!isFolderEditMode || !draggingNodeId) return;
+    setDragOverNodeId(null);
+    if (draggingNodeId === targetId) return;
+    await handleMoveNode(draggingNodeId, targetId);
+    setDraggingNodeId(null);
+  };
+
   return (
     <div className="flex flex-col h-screen bg-[#F3F4F6] text-[#1F2937] overflow-hidden font-sans">
       {/* --- Top Header --- */}
@@ -569,6 +1199,12 @@ export default function App() {
         {/* --- Central Area --- */}
         <div className="flex-1 relative overflow-hidden" style={{ backgroundColor: state.theme.backgroundColor }}>
           <div className="absolute inset-0 pointer-events-none" style={{ backgroundImage: 'radial-gradient(#E2E8F0 1px, transparent 1px)', backgroundSize: '24px 24px' }}></div>
+          {isFolderEditMode && (
+            <div className="absolute top-4 left-1/2 -translate-x-1/2 z-40 bg-blue-50 border border-blue-200 text-blue-700 rounded-xl px-4 py-2 shadow-sm">
+              <div className="text-xs font-bold">{t('folderEditModeOn')}</div>
+              <div className="text-[11px]">{t('folderEditModeHint')}</div>
+            </div>
+          )}
           
           {/* Tree View Canvas */}
           <div 
@@ -625,12 +1261,23 @@ export default function App() {
             {/* Nodes */}
             <AnimatePresence mode="popLayout">
               {treeData.descendants().map((node) => (
-                <FolderNodeComponent 
+                <FolderNodeComponent
                   key={node.data.id}
                   node={node}
                   isSelected={state.selectedFolderId === node.data.id}
                   isHighlighted={highlightedFolderIds.has(node.data.id)}
+                  isEditMode={isFolderEditMode}
+                  isDragTarget={dragOverNodeId === node.data.id}
                   onSelect={toggleNode}
+                  onOpenFolder={handleOpenFolder}
+                  onContextMenuNode={handleNodeContextMenu}
+                  onStartDrag={setDraggingNodeId}
+                  onDragEnterNode={setDragOverNodeId}
+                  onDropNode={handleDropToNode}
+                  onEndDrag={() => {
+                    setDraggingNodeId(null);
+                    setDragOverNodeId(null);
+                  }}
                   tags={state.tags}
                   theme={state.theme}
                 />
@@ -810,14 +1457,127 @@ export default function App() {
     {/* --- Bottom Status Bar --- */}
     <footer className="h-8 bg-gray-50 border-t border-gray-200 flex items-center px-4 justify-between shrink-0 z-50">
       <div className="flex items-center gap-4">
-        <span className="text-[10px] text-gray-500 font-medium">{t('connectionTo')}: 192.168.1.10 (Online)</span>
-        <span className="text-[10px] text-gray-500 font-medium">{t('totalFolders')}: 1,284</span>
-      </div>
-      <div className="flex items-center gap-2">
-        <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
-        <span className="text-[10px] text-gray-500 font-bold uppercase tracking-tighter">{t('systemDiagnosticOk')}</span>
+        <span className="text-[10px] text-gray-500 font-medium">{t('connectionTo')}: 192.168.1.10 ({t('online')})</span>
+        <span className="text-[10px] text-gray-500 font-medium">
+          {t('totalFolders')}: {flatData.length.toLocaleString()}
+        </span>
       </div>
     </footer>
+
+    {contextMenu && isFolderEditMode && (
+      <div
+        className="fixed z-[95] min-w-44 bg-white border border-gray-200 rounded-lg shadow-xl p-1"
+        style={{ left: contextMenu.x, top: contextMenu.y }}
+      >
+        <button
+          className="w-full text-left px-3 py-2 text-xs font-medium hover:bg-gray-100 rounded"
+          onClick={() => {
+            const folder = getFolderById(contextMenu.folderId);
+            setDialogState({ type: 'rename', folderId: contextMenu.folderId, value: folder?.name ?? '' });
+            setContextMenu(null);
+          }}
+        >
+          {t('renameFolder')}
+        </button>
+        <button
+          className="w-full text-left px-3 py-2 text-xs font-medium hover:bg-gray-100 rounded"
+          onClick={() => {
+            setDialogState({ type: 'create', folderId: contextMenu.folderId, value: '' });
+            setContextMenu(null);
+          }}
+        >
+          {t('createChildFolder')}
+        </button>
+        <button
+          className="w-full text-left px-3 py-2 text-xs font-medium text-red-600 hover:bg-red-50 rounded"
+          onClick={() => {
+            setDialogState({ type: 'delete', folderId: contextMenu.folderId });
+            setContextMenu(null);
+          }}
+        >
+          {t('deleteFolder')}
+        </button>
+      </div>
+    )}
+
+    {dialogState && (
+      <div className="fixed inset-0 z-[90] bg-black/30 flex items-center justify-center">
+        <div className="bg-white rounded-2xl shadow-2xl border border-gray-100 w-[420px] p-6 space-y-4">
+          {dialogState.type === 'rename' && (
+            <>
+              <h3 className="text-lg font-bold text-gray-900">{t('renameFolder')}</h3>
+              <input
+                className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm outline-none focus:border-blue-400"
+                value={dialogState.value}
+                onChange={(e) => setDialogState({ ...dialogState, value: e.target.value })}
+              />
+              <div className="flex justify-end gap-2">
+                <button className="px-3 py-1.5 text-sm text-gray-500" onClick={() => setDialogState(null)}>{t('cancel')}</button>
+                <button
+                  className="px-3 py-1.5 text-sm font-semibold text-white bg-blue-600 rounded-lg"
+                  onClick={async () => {
+                    await executeRenameFolder(dialogState.folderId, dialogState.value);
+                    setDialogState(null);
+                  }}
+                >
+                  {t('rename')}
+                </button>
+              </div>
+            </>
+          )}
+
+          {dialogState.type === 'create' && (
+            <>
+              <h3 className="text-lg font-bold text-gray-900">{t('createChildFolder')}</h3>
+              <p className="text-xs text-gray-500">{t('createChildFolderDescription')}</p>
+              <input
+                className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm outline-none focus:border-blue-400"
+                value={dialogState.value}
+                onChange={(e) => setDialogState({ ...dialogState, value: e.target.value })}
+              />
+              <div className="flex justify-end gap-2">
+                <button className="px-3 py-1.5 text-sm text-gray-500" onClick={() => setDialogState(null)}>{t('cancel')}</button>
+                <button
+                  className="px-3 py-1.5 text-sm font-semibold text-white bg-blue-600 rounded-lg"
+                  onClick={async () => {
+                    await executeCreateChildFolder(dialogState.folderId, dialogState.value);
+                    setDialogState(null);
+                  }}
+                >
+                  {t('create')}
+                </button>
+              </div>
+            </>
+          )}
+
+          {dialogState.type === 'delete' && (
+            <>
+              <h3 className="text-lg font-bold text-gray-900">{t('deleteFolder')}</h3>
+              <p className="text-sm text-gray-700">{t('confirmDeleteFolder')}</p>
+              <p className="text-xs text-red-600">{t('confirmDeleteWarning')}</p>
+              <div className="flex justify-end gap-2">
+                <button className="px-3 py-1.5 text-sm text-gray-500" onClick={() => setDialogState(null)}>{t('cancel')}</button>
+                <button
+                  className="px-3 py-1.5 text-sm font-semibold text-white bg-red-600 rounded-lg"
+                  onClick={async () => {
+                    await executeDeleteFolder(dialogState.folderId);
+                    setDialogState(null);
+                  }}
+                >
+                  {t('delete')}
+                </button>
+              </div>
+            </>
+          )}
+        </div>
+      </div>
+    )}
+
+    {toastMessage && (
+      <div className="fixed bottom-12 right-6 z-[100] bg-gray-900 text-white text-xs px-4 py-2 rounded-lg shadow-xl">
+        {toastMessage}
+      </div>
+    )}
 
       {/* --- Settings Modal (Slide-out) --- */}
       <AnimatePresence>
@@ -846,6 +1606,7 @@ export default function App() {
                   { id: 'root', label: t('rootSettings'), icon: Folder },
                   { id: 'lang', label: t('langSettings'), icon: Globe },
                   { id: 'tags', label: t('tagSettings'), icon: PenTool },
+                  { id: 'edit', label: t('folderEditModeSettings'), icon: FolderPen },
                   { id: 'env', label: t('envSettings'), icon: Settings },
                 ].map((cat) => (
                   <button 
@@ -870,6 +1631,7 @@ export default function App() {
                     {settingsCategory === 'root' && t('rootSettings')}
                     {settingsCategory === 'lang' && t('langSettings')}
                     {settingsCategory === 'tags' && t('tagSettings')}
+                    {settingsCategory === 'edit' && t('folderEditModeTitle')}
                     {settingsCategory === 'env' && t('envSettings')}
                   </h3>
                   <button 
@@ -1020,6 +1782,30 @@ export default function App() {
                              </div>
                            ))}
                         </div>
+                     </div>
+                   )}
+
+                   {/* Folder Edit Mode Category */}
+                   {settingsCategory === 'edit' && (
+                     <div className="space-y-5">
+                       <label className="text-[11px] font-bold text-gray-400 uppercase tracking-wider">{t('folderEditModeTitle')}</label>
+                       <div className="p-5 rounded-2xl border border-blue-100 bg-blue-50/40 space-y-3">
+                         <p className="text-sm text-blue-900 font-medium">{t('folderEditModeDescription')}</p>
+                         <button
+                           onClick={() => setIsFolderEditMode(prev => !prev)}
+                           className={cn(
+                             "relative inline-flex h-7 w-14 items-center rounded-full transition-colors",
+                             isFolderEditMode ? "bg-blue-600" : "bg-gray-300"
+                           )}
+                         >
+                           <span
+                             className={cn(
+                               "inline-block h-5 w-5 transform rounded-full bg-white transition-transform",
+                               isFolderEditMode ? "translate-x-8" : "translate-x-1"
+                             )}
+                           />
+                         </button>
+                       </div>
                      </div>
                    )}
 
