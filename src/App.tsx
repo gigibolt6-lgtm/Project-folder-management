@@ -1246,27 +1246,6 @@ export default function App() {
     setDragOverNodeId(null);
   };
 
-  useEffect(() => {
-    if (!contextMenu) return;
-    const handlePointerDown = (event: MouseEvent) => {
-      if (!contextMenuRef.current) return;
-      if (!contextMenuRef.current.contains(event.target as Node)) {
-        setContextMenu(null);
-      }
-    };
-    const handleEscape = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
-        setContextMenu(null);
-      }
-    };
-    window.addEventListener('mousedown', handlePointerDown);
-    window.addEventListener('keydown', handleEscape);
-    return () => {
-      window.removeEventListener('mousedown', handlePointerDown);
-      window.removeEventListener('keydown', handleEscape);
-    };
-  }, [contextMenu]);
-
   return (
     <div className="flex flex-col h-screen bg-[#F3F4F6] text-[#1F2937] overflow-hidden font-sans">
       {/* --- Top Header --- */}
