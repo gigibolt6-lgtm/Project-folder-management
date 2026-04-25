@@ -7,6 +7,7 @@ import {
   Info, 
   ChevronRight, 
   Folder, 
+  FolderOpen,
   MoreVertical,
   Plus,
   Minus,
@@ -58,9 +59,11 @@ interface FolderNodeProps {
   node: any;
   isSelected: boolean;
   isHighlighted: boolean;
+  isExpanded: boolean;
   isEditMode: boolean;
   isDragTarget: boolean;
   onSelect: (id: string) => void;
+  onToggleExpand: (id: string) => void;
   onOpenFolder: (folder: FolderNode) => void;
   onContextMenu: (event: React.MouseEvent, folder: FolderNode) => void;
   onDragStart: (id: string) => void;
@@ -76,9 +79,11 @@ const FolderNodeComponent: React.FC<FolderNodeProps> = ({
   node, 
   isSelected, 
   isHighlighted,
+  isExpanded,
   isEditMode,
   isDragTarget,
   onSelect,
+  onToggleExpand,
   onOpenFolder,
   onContextMenu,
   onDragStart,
@@ -91,6 +96,7 @@ const FolderNodeComponent: React.FC<FolderNodeProps> = ({
 }) => {
   const data = node.data as FolderNode;
   const nodeTags = tags.filter(t => data.tags.includes(t.id));
+  const hasChildren = (data.children?.length ?? 0) > 0;
 
   return (
     <motion.div
@@ -101,10 +107,6 @@ const FolderNodeComponent: React.FC<FolderNodeProps> = ({
       onClick={(e) => {
         e.stopPropagation();
         onSelect(data.id);
-      }}
-      onDoubleClick={(e) => {
-        e.stopPropagation();
-        onOpenFolder(data);
       }}
       onMouseDown={(e) => {
         e.stopPropagation();
@@ -169,15 +171,25 @@ const FolderNodeComponent: React.FC<FolderNodeProps> = ({
         borderColor: isSelected ? theme.focusColor : undefined
       }}
     >
-      <div
+      <button
+        type="button"
+        disabled={isEditMode}
+        onClick={(event) => {
+          event.stopPropagation();
+          event.preventDefault();
+          if (!isEditMode) onOpenFolder(data);
+        }}
+        title="フォルダを開く"
+        aria-label="フォルダを開く"
         className={cn(
-          "p-1.5 rounded bg-gray-50 group-hover:bg-blue-50 transition-colors",
-          isSelected && "bg-blue-50"
+          "p-1.5 rounded transition-colors",
+          isEditMode
+            ? "bg-gray-50 text-gray-300 cursor-not-allowed"
+            : "bg-gray-50 text-gray-500 hover:bg-blue-50 hover:text-blue-600"
         )}
-        style={isSelected ? { color: theme.focusColor } : { color: theme.folderColor }}
       >
-        <Folder size={18} className={cn(isSelected ? "fill-current opacity-20" : "")} />
-      </div>
+        <FolderOpen size={18} />
+      </button>
       
       <div className="flex-1 overflow-hidden">
         <div className="flex items-center justify-between gap-2">
@@ -196,6 +208,24 @@ const FolderNodeComponent: React.FC<FolderNodeProps> = ({
           ))}
         </div>
       </div>
+
+      {hasChildren ? (
+        <button
+          type="button"
+          onClick={(event) => {
+            event.stopPropagation();
+            event.preventDefault();
+            onToggleExpand(data.id);
+          }}
+          title={isExpanded ? '子フォルダを折りたたむ' : '子フォルダを展開'}
+          aria-label={isExpanded ? '子フォルダを折りたたむ' : '子フォルダを展開'}
+          className="w-6 h-6 shrink-0 rounded border border-gray-200 bg-white text-gray-500 hover:bg-blue-50 hover:text-blue-600 transition-colors flex items-center justify-center"
+        >
+          {isExpanded ? <Minus size={12} /> : <Plus size={12} />}
+        </button>
+      ) : (
+        <div className="w-6 h-6 shrink-0" aria-hidden="true" />
+      )}
 
       {isSelected && (
         <motion.div 
@@ -953,25 +983,8 @@ export default function App() {
   }, [state.tagMode, state.activeTagFilters, flatData]);
 
   // --- Actions ---
-  const toggleNode = useCallback((id: string) => {
-    setState(prev => {
-      const next = new Set(prev.expandedFolderIds);
-      const isAlreadyExpanded = next.has(id);
-      
-      if (prev.selectedFolderId === id) {
-        // Second click behavior
-        if (isAlreadyExpanded) {
-          next.delete(id);
-        } else {
-          next.add(id);
-        }
-      } else {
-        // First click behavior
-        next.add(id);
-      }
-      
-      return { ...prev, expandedFolderIds: next, selectedFolderId: id };
-    });
+  const handleSelectNode = useCallback((id: string) => {
+    setState(prev => ({ ...prev, selectedFolderId: id }));
 
     // Determine target camera position
     const node = treeData.descendants().find(d => d.data.id === id);
@@ -985,6 +998,18 @@ export default function App() {
       }));
     }
   }, [treeData]);
+
+  const handleToggleExpand = useCallback((id: string) => {
+    setState(prev => {
+      const next = new Set(prev.expandedFolderIds);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return { ...prev, expandedFolderIds: next };
+    });
+  }, []);
 
   const handleOpenFolder = useCallback(async (folder: FolderNode) => {
     try {
@@ -1236,7 +1261,7 @@ export default function App() {
         } else break;
       }
       setState(prev => ({ ...prev, expandedFolderIds: expanded, selectedFolderId: match.id }));
-      toggleNode(match.id);
+      handleSelectNode(match.id);
     }
   };
 
@@ -1408,9 +1433,11 @@ export default function App() {
                   node={node}
                   isSelected={state.selectedFolderId === node.data.id}
                   isHighlighted={highlightedFolderIds.has(node.data.id)}
+                  isExpanded={state.expandedFolderIds.has(node.data.id)}
                   isEditMode={isFolderEditMode}
                   isDragTarget={dragOverNodeId === node.data.id}
-                  onSelect={toggleNode}
+                  onSelect={handleSelectNode}
+                  onToggleExpand={handleToggleExpand}
                   onOpenFolder={handleOpenFolder}
                   onContextMenu={handleNodeContextMenu}
                   onDragStart={handleNodeDragStart}
