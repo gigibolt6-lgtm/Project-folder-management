@@ -62,6 +62,12 @@ interface FolderNodeProps {
   isDragTarget: boolean;
   onSelect: (id: string) => void;
   onOpenFolder: (folder: FolderNode) => void;
+  onContextMenu: (event: React.MouseEvent, folder: FolderNode) => void;
+  onDragStart: (id: string) => void;
+  onDragEnter: (id: string) => void;
+  onDragLeave: (id: string) => void;
+  onDrop: (id: string) => void;
+  onDragEnd: () => void;
   tags: Tag[];
   theme: any;
 }
@@ -74,12 +80,17 @@ const FolderNodeComponent: React.FC<FolderNodeProps> = ({
   isDragTarget,
   onSelect,
   onOpenFolder,
+  onContextMenu,
+  onDragStart,
+  onDragEnter,
+  onDragLeave,
+  onDrop,
+  onDragEnd,
   tags,
   theme
 }) => {
   const data = node.data as FolderNode;
   const nodeTags = tags.filter(t => data.tags.includes(t.id));
-  const lastRightClickRef = useRef<number>(0);
 
   return (
     <motion.div
@@ -91,21 +102,60 @@ const FolderNodeComponent: React.FC<FolderNodeProps> = ({
         e.stopPropagation();
         onSelect(data.id);
       }}
-      onMouseDown={(e) => {
-        if (e.button !== 2) return;
-        e.preventDefault();
+      onDoubleClick={(e) => {
         e.stopPropagation();
-        const now = Date.now();
-        if (now - lastRightClickRef.current <= 350) {
-          onOpenFolder(data);
+        onOpenFolder(data);
+      }}
+      onMouseDown={(e) => {
+        e.stopPropagation();
+        if (e.button === 2) {
+          e.preventDefault();
         }
-        lastRightClickRef.current = now;
       }}
       onContextMenu={(e) => {
         e.preventDefault();
+        e.stopPropagation();
+        onContextMenu(e, data);
+      }}
+      draggable={isEditMode}
+      onDragStart={(e) => {
+        if (!isEditMode) return;
+        e.stopPropagation();
+        e.dataTransfer.setData('text/plain', data.id);
+        e.dataTransfer.effectAllowed = 'move';
+        onDragStart(data.id);
+      }}
+      onDragEnter={(e) => {
+        if (!isEditMode) return;
+        e.preventDefault();
+        e.stopPropagation();
+        onDragEnter(data.id);
+      }}
+      onDragOver={(e) => {
+        if (!isEditMode) return;
+        e.preventDefault();
+        e.stopPropagation();
+        e.dataTransfer.dropEffect = 'move';
+      }}
+      onDragLeave={(e) => {
+        if (!isEditMode) return;
+        e.stopPropagation();
+        onDragLeave(data.id);
+      }}
+      onDrop={(e) => {
+        if (!isEditMode) return;
+        e.preventDefault();
+        e.stopPropagation();
+        onDrop(data.id);
+      }}
+      onDragEnd={(e) => {
+        if (!isEditMode) return;
+        e.stopPropagation();
+        onDragEnd();
       }}
       className={cn(
         "absolute flex items-center gap-2.5 p-2 bg-white rounded-lg border border-gray-200 transition-all cursor-pointer group shadow-sm hover:shadow-md",
+        isEditMode ? "cursor-move" : "",
         isSelected ? "ring-2 ring-blue-500/20 z-20" : "",
         isHighlighted ? "ring-2 ring-blue-400/30 border-blue-400 z-10 bg-blue-50/30" : "",
         isEditMode ? "border-blue-200 bg-blue-50/20" : "",
@@ -125,10 +175,6 @@ const FolderNodeComponent: React.FC<FolderNodeProps> = ({
           isSelected && "bg-blue-50"
         )}
         style={isSelected ? { color: theme.focusColor } : { color: theme.folderColor }}
-        onDoubleClick={(e) => {
-          e.stopPropagation();
-          onOpenFolder(data);
-        }}
       >
         <Folder size={18} className={cn(isSelected ? "fill-current opacity-20" : "")} />
       </div>
@@ -220,6 +266,8 @@ const TRANSLATIONS: Record<string, Record<string, string>> = {
     folderScanComplete: 'フォルダ「{name}」のスキャンが完了しました。',
     folderLoadError: 'フォルダの読み込み中にエラーが発生しました。',
     folderOpenFailed: 'フォルダを開けませんでした。ローカルフォルダを選択後にお試しください。',
+    desktopOnlyFeature: 'この機能はデスクトップアプリ版で利用できます。',
+    folderNotFound: 'フォルダが存在しません。',
     localFolder: 'ローカルフォルダ',
     bgColorLabel: 'バックグラウンドの色味',
     bgColorDesc: '全体背景のベースカラー',
@@ -305,6 +353,8 @@ const TRANSLATIONS: Record<string, Record<string, string>> = {
     folderScanComplete: 'Finished scanning folder "{name}".',
     folderLoadError: 'An error occurred while loading the folder.',
     folderOpenFailed: 'Could not open the folder. Please try after selecting a local folder.',
+    desktopOnlyFeature: 'This feature is available in the desktop app.',
+    folderNotFound: 'Folder does not exist.',
     localFolder: 'Local Folder',
     bgColorLabel: 'Background color',
     bgColorDesc: 'Base color of the app background',
@@ -612,7 +662,120 @@ export default function App() {
   const [settingsCategory, setSettingsCategory] = useState<'root' | 'lang' | 'tags' | 'env' | 'edit'>('root');
   const [viewTransform, setViewTransform] = useState({ x: 100, y: 300, k: 1 });
   const containerRef = useRef<HTMLDivElement>(null);
+  const contextMenuRef = useRef<HTMLDivElement>(null);
   const folderHandleMapRef = useRef<Map<string, any>>(new Map());
+  const [isFolderEditMode, setIsFolderEditMode] = useState(false);
+  const [contextMenu, setContextMenu] = useState<ContextMenuState>(null);
+  const [dialogState, setDialogState] = useState<FolderDialogState>(null);
+  const [draggingNodeId, setDraggingNodeId] = useState<string | null>(null);
+  const [dragOverNodeId, setDragOverNodeId] = useState<string | null>(null);
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
+
+  const updateNodePathRecursive = useCallback((node: FolderNode, parentPath: string): FolderNode => {
+    const basePath = parentPath ? `${parentPath}/${node.name}` : `/${node.name}`;
+    const normalizedPath = basePath.replace(/\/+/g, '/');
+    return {
+      ...node,
+      path: normalizedPath,
+      children: node.children?.map(child => updateNodePathRecursive(child, normalizedPath)),
+    };
+  }, []);
+
+  const extractNodeFromTree = useCallback((nodes: FolderNode[], targetId: string): {
+    nextNodes: FolderNode[];
+    extractedNode: FolderNode | null;
+  } => {
+    let extractedNode: FolderNode | null = null;
+    const nextNodes = nodes
+      .map(node => {
+        if (node.id === targetId) {
+          extractedNode = node;
+          return null;
+        }
+        if (!node.children?.length) return node;
+        const { nextNodes: nextChildren, extractedNode: childExtracted } = extractNodeFromTree(node.children, targetId);
+        if (childExtracted) extractedNode = childExtracted;
+        return { ...node, children: nextChildren };
+      })
+      .filter((node): node is FolderNode => node !== null);
+    return { nextNodes, extractedNode };
+  }, []);
+
+  const isDescendant = useCallback((sourceId: string, targetId: string) => {
+    const findNode = (nodes: FolderNode[]): FolderNode | null => {
+      for (const node of nodes) {
+        if (node.id === sourceId) return node;
+        if (node.children?.length) {
+          const found = findNode(node.children);
+          if (found) return found;
+        }
+      }
+      return null;
+    };
+    const sourceNode = findNode(state.items);
+    if (!sourceNode) return false;
+    const containsTarget = (node: FolderNode): boolean => {
+      if (node.id === targetId) return true;
+      return (node.children ?? []).some(containsTarget);
+    };
+    return (sourceNode.children ?? []).some(containsTarget);
+  }, [state.items]);
+
+  const ensureNoDuplicateFolder = useCallback(async (dirHandle: any, folderName: string) => {
+    try {
+      await dirHandle.getDirectoryHandle(folderName);
+      return false;
+    } catch (error: any) {
+      if (error?.name === 'NotFoundError') return true;
+      throw error;
+    }
+  }, []);
+
+  const moveNodeInState = useCallback((nodes: FolderNode[], sourceId: string, targetId: string) => {
+    const { nextNodes, extractedNode } = extractNodeFromTree(nodes, sourceId);
+    if (!extractedNode) return nodes;
+    const attachToTarget = (items: FolderNode[]): FolderNode[] =>
+      items.map(node => {
+        if (node.id === targetId) {
+          const movedNode = updateNodePathRecursive(extractedNode, node.path);
+          return { ...node, children: [...(node.children ?? []), movedNode] };
+        }
+        if (!node.children?.length) return node;
+        return { ...node, children: attachToTarget(node.children) };
+      });
+    return attachToTarget(nextNodes);
+  }, [extractNodeFromTree, updateNodePathRecursive]);
+
+  const renameNodeInState = useCallback((nodes: FolderNode[], folderId: string, nextName: string): FolderNode[] =>
+    nodes.map(node => {
+      if (node.id === folderId) {
+        const renamedNode = { ...node, name: nextName };
+        const parentPath = node.path.split('/').slice(0, -1).join('/') || '';
+        return updateNodePathRecursive(renamedNode, parentPath);
+      }
+      if (!node.children?.length) return node;
+      return { ...node, children: renameNodeInState(node.children, folderId, nextName) };
+    })
+  , [updateNodePathRecursive]);
+
+  const addChildNodeInState = useCallback((nodes: FolderNode[], folderId: string, childNode: FolderNode): FolderNode[] =>
+    nodes.map(node => {
+      if (node.id === folderId) {
+        return { ...node, children: [...(node.children ?? []), childNode] };
+      }
+      if (!node.children?.length) return node;
+      return { ...node, children: addChildNodeInState(node.children, folderId, childNode) };
+    })
+  , []);
+
+  const deleteNodeInState = useCallback((nodes: FolderNode[], folderId: string): FolderNode[] =>
+    nodes
+      .filter(node => node.id !== folderId)
+      .map(node => ({
+        ...node,
+        children: node.children ? deleteNodeInState(node.children, folderId) : undefined,
+      }))
+  , []);
 
   // --- Local Folder Scanning Logic ---
   const handleSelectLocalFolder = async () => {
@@ -634,12 +797,19 @@ export default function App() {
       // @ts-ignore
       const handle = await window.showDirectoryPicker();
       
+      const joinFolderPath = (basePath: string, name: string) => {
+        if (!basePath) return name;
+        const separator = basePath.includes('\\') ? '\\' : '/';
+        return `${basePath}${separator}${name}`;
+      };
+
       const scan = async (dirHandle: any, parentPath: string): Promise<FolderNode> => {
         const nodeId = Math.random().toString(36).substring(2, 11);
+        const nodePath = joinFolderPath(parentPath, dirHandle.name);
         const node: FolderNode = {
           id: nodeId,
           name: dirHandle.name,
-          path: `${parentPath}/${dirHandle.name}`,
+          path: nodePath,
           tags: [],
           metadata: { description: '', department: '', owner: '', remark: '' },
           children: []
@@ -655,7 +825,11 @@ export default function App() {
         return node;
       };
 
-      const rootNode = await scan(handle, '');
+      const absoluteRootPath = (handle as any).path as string | undefined;
+      const rootParentPath = absoluteRootPath
+        ? absoluteRootPath.replace(/[\\/]?[^\\/]+$/, '')
+        : '';
+      const rootNode = await scan(handle, rootParentPath);
       
       setState(prev => ({
         ...prev,
@@ -664,7 +838,7 @@ export default function App() {
         selectedFolderId: rootNode.id,
         sources: [
           ...prev.sources,
-          { id: rootNode.id, name: handle.name, path: t('localFolder'), isActive: true }
+          { id: rootNode.id, name: handle.name, path: rootNode.path, isActive: true }
         ]
       }));
       
@@ -785,20 +959,18 @@ export default function App() {
 
   const handleOpenFolder = useCallback(async (folder: FolderNode) => {
     try {
-      const folderHandle = folderHandleMapRef.current.get(folder.id);
-      // @ts-ignore
-      if (folderHandle && window.showDirectoryPicker) {
-        // @ts-ignore
-        await window.showDirectoryPicker({ startIn: folderHandle });
+      if (!window.folderApi?.openFolder) {
+        alert(t('desktopOnlyFeature'));
         return;
       }
 
-      const href = folder.path.startsWith('file://')
-        ? folder.path
-        : `file://${encodeURI(folder.path)}`;
-      const openedWindow = window.open(href, '_blank', 'noopener,noreferrer');
-      if (!openedWindow) {
-        alert(t('folderOpenFailed'));
+      const result = await window.folderApi.openFolder(folder.path);
+      if (!result.ok) {
+        if (result.message?.includes('存在しません')) {
+          alert(t('folderNotFound'));
+          return;
+        }
+        alert(result.message || t('folderOpenFailed'));
       }
     } catch (error) {
       console.error(error);
@@ -1052,6 +1224,50 @@ export default function App() {
     setDraggingNodeId(null);
   };
 
+  const handleNodeDragStart = (nodeId: string) => {
+    if (!isFolderEditMode) return;
+    setContextMenu(null);
+    setDraggingNodeId(nodeId);
+    setDragOverNodeId(null);
+  };
+
+  const handleNodeDragEnter = (nodeId: string) => {
+    if (!isFolderEditMode || !draggingNodeId || draggingNodeId === nodeId) return;
+    setDragOverNodeId(nodeId);
+  };
+
+  const handleNodeDragLeave = (nodeId: string) => {
+    if (dragOverNodeId === nodeId) {
+      setDragOverNodeId(null);
+    }
+  };
+
+  const handleNodeDragEnd = () => {
+    setDraggingNodeId(null);
+    setDragOverNodeId(null);
+  };
+
+  useEffect(() => {
+    if (!contextMenu) return;
+    const handlePointerDown = (event: MouseEvent) => {
+      if (!contextMenuRef.current) return;
+      if (!contextMenuRef.current.contains(event.target as Node)) {
+        setContextMenu(null);
+      }
+    };
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setContextMenu(null);
+      }
+    };
+    window.addEventListener('mousedown', handlePointerDown);
+    window.addEventListener('keydown', handleEscape);
+    return () => {
+      window.removeEventListener('mousedown', handlePointerDown);
+      window.removeEventListener('keydown', handleEscape);
+    };
+  }, [contextMenu]);
+
   return (
     <div className="flex flex-col h-screen bg-[#F3F4F6] text-[#1F2937] overflow-hidden font-sans">
       {/* --- Top Header --- */}
@@ -1102,8 +1318,12 @@ export default function App() {
           {/* Tree View Canvas */}
           <div 
             ref={containerRef}
-            className="w-full h-full cursor-grab active:cursor-grabbing relative z-10"
+            className={cn(
+              "w-full h-full relative z-10",
+              isFolderEditMode ? "cursor-default" : "cursor-grab active:cursor-grabbing"
+            )}
           onMouseDown={(e) => {
+            if (isFolderEditMode) return;
             const startX = e.clientX - viewTransform.x;
             const startY = e.clientY - viewTransform.y;
             const onMouseMove = (moveEvent: MouseEvent) => {
@@ -1163,6 +1383,12 @@ export default function App() {
                   isDragTarget={dragOverNodeId === node.data.id}
                   onSelect={toggleNode}
                   onOpenFolder={handleOpenFolder}
+                  onContextMenu={handleNodeContextMenu}
+                  onDragStart={handleNodeDragStart}
+                  onDragEnter={handleNodeDragEnter}
+                  onDragLeave={handleNodeDragLeave}
+                  onDrop={handleDropToNode}
+                  onDragEnd={handleNodeDragEnd}
                   tags={state.tags}
                   theme={state.theme}
                 />
@@ -1351,6 +1577,7 @@ export default function App() {
 
     {contextMenu && isFolderEditMode && (
       <div
+        ref={contextMenuRef}
         className="fixed z-[95] min-w-44 bg-white border border-gray-200 rounded-lg shadow-xl p-1"
         style={{ left: contextMenu.x, top: contextMenu.y }}
       >
