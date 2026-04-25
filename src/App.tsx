@@ -62,11 +62,6 @@ interface FolderNodeProps {
   isDragTarget: boolean;
   onSelect: (id: string) => void;
   onOpenFolder: (folder: FolderNode) => void;
-  onContextMenuNode: (e: React.MouseEvent, folder: FolderNode) => void;
-  onStartDrag: (id: string) => void;
-  onDragEnterNode: (id: string) => void;
-  onDropNode: (targetId: string) => void;
-  onEndDrag: () => void;
   tags: Tag[];
   theme: any;
 }
@@ -79,16 +74,12 @@ const FolderNodeComponent: React.FC<FolderNodeProps> = ({
   isDragTarget,
   onSelect,
   onOpenFolder,
-  onContextMenuNode,
-  onStartDrag,
-  onDragEnterNode,
-  onDropNode,
-  onEndDrag,
   tags,
   theme
 }) => {
   const data = node.data as FolderNode;
   const nodeTags = tags.filter(t => data.tags.includes(t.id));
+  const lastRightClickRef = useRef<number>(0);
 
   return (
     <motion.div
@@ -100,34 +91,18 @@ const FolderNodeComponent: React.FC<FolderNodeProps> = ({
         e.stopPropagation();
         onSelect(data.id);
       }}
-      onMouseDown={(e) => e.stopPropagation()}
-      draggable={isEditMode}
-      onDragStart={(e) => {
-        if (!isEditMode) return;
-        e.dataTransfer.effectAllowed = 'move';
-        onStartDrag(data.id);
-      }}
-      onDragEnd={() => onEndDrag()}
-      onDragOver={(e) => {
-        if (!isEditMode) return;
-        e.preventDefault();
-        e.dataTransfer.dropEffect = 'move';
-      }}
-      onDragEnter={() => {
-        if (!isEditMode) return;
-        onDragEnterNode(data.id);
-      }}
-      onDrop={(e) => {
-        if (!isEditMode) return;
+      onMouseDown={(e) => {
+        if (e.button !== 2) return;
         e.preventDefault();
         e.stopPropagation();
-        onDropNode(data.id);
+        const now = Date.now();
+        if (now - lastRightClickRef.current <= 350) {
+          onOpenFolder(data);
+        }
+        lastRightClickRef.current = now;
       }}
       onContextMenu={(e) => {
-        if (!isEditMode) return;
         e.preventDefault();
-        e.stopPropagation();
-        onContextMenuNode(e, data);
       }}
       className={cn(
         "absolute flex items-center gap-2.5 p-2 bg-white rounded-lg border border-gray-200 transition-all cursor-pointer group shadow-sm hover:shadow-md",
@@ -638,18 +613,6 @@ export default function App() {
   const [viewTransform, setViewTransform] = useState({ x: 100, y: 300, k: 1 });
   const containerRef = useRef<HTMLDivElement>(null);
   const folderHandleMapRef = useRef<Map<string, any>>(new Map());
-  const [isFolderEditMode, setIsFolderEditMode] = useState(false);
-  const [draggingNodeId, setDraggingNodeId] = useState<string | null>(null);
-  const [dragOverNodeId, setDragOverNodeId] = useState<string | null>(null);
-  const [contextMenu, setContextMenu] = useState<ContextMenuState>(null);
-  const [dialogState, setDialogState] = useState<FolderDialogState>(null);
-  const [toastMessage, setToastMessage] = useState<string | null>(null);
-
-  useEffect(() => {
-    const close = () => setContextMenu(null);
-    window.addEventListener('click', close);
-    return () => window.removeEventListener('click', close);
-  }, []);
 
   // --- Local Folder Scanning Logic ---
   const handleSelectLocalFolder = async () => {
@@ -842,76 +805,6 @@ export default function App() {
       alert(t('folderOpenFailed'));
     }
   }, [t]);
-
-  const isDescendant = useCallback((ancestorId: string, targetId: string) => {
-    let current = getFolderById(targetId);
-    while (current?.parentId) {
-      if (current.parentId === ancestorId) return true;
-      current = getFolderById(current.parentId);
-    }
-    return false;
-  }, [getFolderById]);
-
-  const moveNodeInState = (nodes: FolderNode[], sourceId: string, targetId: string): FolderNode[] => {
-    let sourceNode: FolderNode | null = null;
-    const removeNode = (items: FolderNode[]): FolderNode[] => items
-      .map(item => {
-        if (item.id === sourceId) {
-          sourceNode = item;
-          return null;
-        }
-        if (item.children) return { ...item, children: removeNode(item.children).filter(Boolean) as FolderNode[] };
-        return item;
-      })
-      .filter(Boolean) as FolderNode[];
-
-    const treeWithoutSource = removeNode(nodes);
-    if (!sourceNode) return nodes;
-
-    const insertNode = (items: FolderNode[]): FolderNode[] => items.map(item => {
-      if (item.id === targetId) {
-        const movedNode = updateNodeAndDescendantPaths(sourceNode!, item.path);
-        return { ...item, children: [...(item.children ?? []), movedNode] };
-      }
-      return { ...item, children: item.children ? insertNode(item.children) : item.children };
-    });
-
-    return insertNode(treeWithoutSource);
-  };
-
-  const renameNodeInState = (nodes: FolderNode[], folderId: string, newName: string): FolderNode[] =>
-    nodes.map(node => {
-      if (node.id === folderId) {
-        const parentPath = node.path.substring(0, node.path.lastIndexOf('/')) || '';
-        return updateNodeAndDescendantPaths({ ...node, name: newName }, parentPath);
-      }
-      return { ...node, children: node.children ? renameNodeInState(node.children, folderId, newName) : node.children };
-    });
-
-  const addChildNodeInState = (nodes: FolderNode[], folderId: string, child: FolderNode): FolderNode[] =>
-    nodes.map(node => {
-      if (node.id === folderId) {
-        return { ...node, children: [...(node.children ?? []), child] };
-      }
-      return { ...node, children: node.children ? addChildNodeInState(node.children, folderId, child) : node.children };
-    });
-
-  const deleteNodeInState = (nodes: FolderNode[], folderId: string): FolderNode[] =>
-    nodes
-      .map(node => {
-        if (node.id === folderId) return null;
-        return { ...node, children: node.children ? deleteNodeInState(node.children, folderId) : node.children };
-      })
-      .filter(Boolean) as FolderNode[];
-
-  const ensureNoDuplicateFolder = async (parentHandle: any, name: string) => {
-    try {
-      await parentHandle.getDirectoryHandle(name);
-      return false;
-    } catch {
-      return true;
-    }
-  };
 
   const handleMetadataChange = (id: string, field: keyof FolderMetadata, value: string) => {
     setState(prev => {
@@ -1270,14 +1163,6 @@ export default function App() {
                   isDragTarget={dragOverNodeId === node.data.id}
                   onSelect={toggleNode}
                   onOpenFolder={handleOpenFolder}
-                  onContextMenuNode={handleNodeContextMenu}
-                  onStartDrag={setDraggingNodeId}
-                  onDragEnterNode={setDragOverNodeId}
-                  onDropNode={handleDropToNode}
-                  onEndDrag={() => {
-                    setDraggingNodeId(null);
-                    setDragOverNodeId(null);
-                  }}
                   tags={state.tags}
                   theme={state.theme}
                 />
