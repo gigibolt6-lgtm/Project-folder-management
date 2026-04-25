@@ -780,6 +780,34 @@ export default function App() {
   // --- Local Folder Scanning Logic ---
   const handleSelectLocalFolder = async () => {
     try {
+      if (window.folderApi?.selectAndScanFolder) {
+        const result = await window.folderApi.selectAndScanFolder();
+        if (!result.ok) {
+          if (!result.cancelled) {
+            alert(result.message || t('folderLoadError'));
+          }
+          return;
+        }
+        if (!result.folder) {
+          alert(t('folderLoadError'));
+          return;
+        }
+
+        const rootNode = result.folder;
+        setState(prev => ({
+          ...prev,
+          items: [rootNode],
+          expandedFolderIds: new Set([rootNode.id]),
+          selectedFolderId: rootNode.id,
+          sources: [
+            ...prev.sources,
+            { id: rootNode.id, name: rootNode.name, path: rootNode.path, isActive: true }
+          ]
+        }));
+        alert(t('folderScanComplete', { name: rootNode.name }));
+        return;
+      }
+
       // Check if in iframe
       const isInIframe = window.self !== window.top;
       
@@ -843,6 +871,7 @@ export default function App() {
       }));
       
       alert(t('folderScanComplete', { name: handle.name }));
+      alert(t('desktopOnlyFeature'));
     } catch (err: any) {
       if (err.name !== 'AbortError') {
         console.error(err);
