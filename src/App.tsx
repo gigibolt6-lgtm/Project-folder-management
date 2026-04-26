@@ -50,6 +50,11 @@ const NODE_FONT_FAMILY_MAP: Record<AppTheme['nodeFontFamily'], string> = {
 const getNodeFontFamily = (fontKey: AppTheme['nodeFontFamily']) =>
   NODE_FONT_FAMILY_MAP[fontKey] ?? NODE_FONT_FAMILY_MAP.system;
 
+const isInteractiveElement = (target: EventTarget | null) => {
+  if (!(target instanceof HTMLElement)) return false;
+  return Boolean(target.closest('input, textarea, select, button, [contenteditable="true"]'));
+};
+
 // --- Components ---
 
 const TagBadge = ({ tag, isSmall = false }: { tag: Tag, isSmall?: boolean }) => {
@@ -1633,14 +1638,7 @@ export default function App() {
   }, [contextMenu, dialogState]);
 
   useEffect(() => {
-    if (!dialogState) return;
-    console.log('[folder-dialog] open', dialogState);
-    console.log('[folder-dialog] render', dialogState);
-  }, [dialogState]);
-
-  useEffect(() => {
     if (dialogState && contextMenu) {
-      console.log('[context-menu] force close because dialog is open', contextMenu);
       setContextMenu(null);
     }
   }, [dialogState, contextMenu]);
@@ -1661,76 +1659,42 @@ export default function App() {
     setFolderDialogInput('');
   }, [dialogState?.type, dialogState?.folderId]);
 
-  useEffect(() => {
-    if (!dialogState || (dialogState.type !== 'rename' && dialogState.type !== 'create')) return;
-    const timer = window.setTimeout(() => {
-      console.log('[folder-dialog] focus before', document.activeElement);
-      folderDialogInputRef.current?.focus();
-      if (dialogState.type === 'rename') {
-        folderDialogInputRef.current?.select();
-      }
-      console.log('[folder-dialog] focus after', document.activeElement);
-    }, 50);
-    return () => window.clearTimeout(timer);
-  }, [dialogState?.type, dialogState?.folderId]);
-
   const openFolderDialog = useCallback((nextDialog: FolderDialogState) => {
-    console.log('[folder-dialog] open requested', nextDialog);
     setContextMenu(null);
-    window.setTimeout(() => {
-      setDialogState(nextDialog);
-    }, 0);
+    setDialogState(nextDialog);
   }, []);
 
   const submitFolderDialog = useCallback(async () => {
     if (!dialogState || (dialogState.type !== 'rename' && dialogState.type !== 'create')) return;
-    console.log('[folder-dialog] submit draft', folderDialogInput);
     const nextName = folderDialogInput.trim();
     if (!nextName) {
       showToast(t('emptyFolderName'));
       return;
     }
-    console.log('[folder-dialog] execute', dialogState.type, dialogState.folderId, folderDialogInput);
     const success = dialogState.type === 'rename'
       ? await executeRenameFolder(dialogState.folderId, nextName)
       : await executeCreateChildFolder(dialogState.folderId, nextName);
     if (success) setDialogState(null);
   }, [dialogState, executeCreateChildFolder, executeRenameFolder, folderDialogInput, showToast, t]);
 
-  useEffect(() => {
+  const focusFolderDialogInput = useCallback(async () => {
+    try {
+      await window.electronAPI?.focusAppWindow?.();
+    } catch (error) {
+      console.warn('[folder-dialog] focusAppWindow failed', error);
+    }
+    window.requestAnimationFrame(() => {
+      const input = folderDialogInputRef.current;
+      if (!input) return;
+      input.focus({ preventScroll: true });
+      input.select();
+    });
+  }, []);
+
+  useLayoutEffect(() => {
     if (!dialogState || (dialogState.type !== 'rename' && dialogState.type !== 'create')) return;
-    const timer = window.setTimeout(() => {
-      folderDialogInputRef.current?.focus();
-      if (dialogState.type === 'rename') {
-        folderDialogInputRef.current?.select();
-      }
-      console.log('[folder-dialog] focus input', document.activeElement);
-    }, 0);
-    return () => window.clearTimeout(timer);
-  }, [dialogState?.type, dialogState?.folderId]);
-
-  
-
-  useEffect(() => {
-    if (!dialogState) return;
-    console.log('[folder-dialog] open', dialogState);
-  }, [dialogState]);
-
-  useEffect(() => {
-    if (!dialogState) {
-      setFolderDialogInput('');
-      return;
-    }
-    if (dialogState.type === 'rename') {
-      setFolderDialogInput(dialogState.value ?? '');
-      return;
-    }
-    if (dialogState.type === 'create') {
-      setFolderDialogInput('');
-      return;
-    }
-    setFolderDialogInput('');
-  }, [dialogState?.type, dialogState?.folderId]);
+    void focusFolderDialogInput();
+  }, [dialogState?.type, dialogState?.folderId, focusFolderDialogInput]);
 
   
   return (
@@ -1791,6 +1755,7 @@ export default function App() {
           onMouseDown={(e) => {
             if (dialogState) return;
             if (isFolderEditMode) return;
+            if (isInteractiveElement(e.target)) return;
             const startX = e.clientX - viewTransform.x;
             const startY = e.clientY - viewTransform.y;
             const onMouseMove = (moveEvent: MouseEvent) => {
@@ -1806,6 +1771,12 @@ export default function App() {
             };
             window.addEventListener('mousemove', onMouseMove);
             window.addEventListener('mouseup', onMouseUp);
+          }}
+          onContextMenu={(e) => {
+            if (dialogState) {
+              e.preventDefault();
+              e.stopPropagation();
+            }
           }}
         >
           <motion.div 
@@ -2137,17 +2108,16 @@ export default function App() {
     )}
 
     {dialogState && typeof document !== 'undefined' && createPortal(
-      <div className="fixed inset-0 z-[100000] pointer-events-none flex items-center justify-center">
+      <div className="fixed inset-0 z-[100] flex items-center justify-center">
         <div
-          className="absolute inset-0 z-0 bg-black/30 pointer-events-auto"
+          className="absolute inset-0 z-[100] bg-black/30"
           onClick={() => {
-            console.log('[folder-dialog] backdrop click');
             setDialogState(null);
           }}
         />
         <div
           draggable={false}
-          className="relative z-10 w-[420px] space-y-4 rounded-2xl border border-gray-100 bg-white p-6 shadow-2xl pointer-events-auto"
+          className="relative z-[101] w-[420px] space-y-4 rounded-2xl border border-gray-100 bg-white p-6 shadow-2xl"
           onClick={(event) => event.stopPropagation()}
           onMouseDown={(event) => event.stopPropagation()}
           onPointerDown={(event) => event.stopPropagation()}
@@ -2158,27 +2128,21 @@ export default function App() {
               <h3 className="text-lg font-bold text-gray-900">{t('renameFolder')}</h3>
               <input
                 ref={folderDialogInputRef}
-                autoFocus
                 draggable={false}
-                className="w-full pointer-events-auto border border-gray-200 rounded-lg px-3 py-2 text-sm outline-none focus:border-blue-400"
+                className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm outline-none focus:border-blue-400"
                 value={folderDialogInput}
-                onChange={(event) => {
-                  console.log('[folder-dialog] draft change', event.target.value);
-                  setFolderDialogInput(event.target.value);
+                onChange={(event) => setFolderDialogInput(event.target.value)}
+                onPointerDown={(event) => {
+                  event.stopPropagation();
+                  void focusFolderDialogInput();
                 }}
-                onFocus={() => {
-                  console.log('[folder-dialog] focus', document.activeElement);
-                }}
-                onBlur={() => {
-                  console.log('[folder-dialog] blur');
-                }}
+                onMouseDown={(event) => event.stopPropagation()}
                 onClick={(event) => {
-                  console.log('[folder-dialog] input click');
-                  const elements = document.elementsFromPoint(event.clientX, event.clientY);
-                  console.log('[folder-dialog] elements from point', elements);
-                  console.log('[folder-dialog] active element', document.activeElement);
+                  event.stopPropagation();
+                  folderDialogInputRef.current?.focus({ preventScroll: true });
                 }}
                 onKeyDown={(event) => {
+                  event.stopPropagation();
                   const nativeEvent = event.nativeEvent as KeyboardEvent;
                   const isComposing = nativeEvent.isComposing || event.key === 'Process';
                   if (isComposing) return;
@@ -2193,8 +2157,9 @@ export default function App() {
                 }}
               />
               <div className="flex justify-end gap-2">
-                <button className="px-3 py-1.5 text-sm text-gray-500" onClick={() => setDialogState(null)}>{t('cancel')}</button>
+                <button draggable={false} className="px-3 py-1.5 text-sm text-gray-500" onClick={() => setDialogState(null)}>{t('cancel')}</button>
                 <button
+                  draggable={false}
                   className="px-3 py-1.5 text-sm font-semibold text-white bg-blue-600 rounded-lg"
                   onClick={async () => {
                     await submitFolderDialog();
@@ -2212,27 +2177,21 @@ export default function App() {
               <p className="text-xs text-gray-500">{t('createChildFolderDescription')}</p>
               <input
                 ref={folderDialogInputRef}
-                autoFocus
                 draggable={false}
-                className="w-full pointer-events-auto border border-gray-200 rounded-lg px-3 py-2 text-sm outline-none focus:border-blue-400"
+                className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm outline-none focus:border-blue-400"
                 value={folderDialogInput}
-                onChange={(event) => {
-                  console.log('[folder-dialog] draft change', event.target.value);
-                  setFolderDialogInput(event.target.value);
+                onChange={(event) => setFolderDialogInput(event.target.value)}
+                onPointerDown={(event) => {
+                  event.stopPropagation();
+                  void focusFolderDialogInput();
                 }}
-                onFocus={() => {
-                  console.log('[folder-dialog] focus', document.activeElement);
-                }}
-                onBlur={() => {
-                  console.log('[folder-dialog] blur');
-                }}
+                onMouseDown={(event) => event.stopPropagation()}
                 onClick={(event) => {
-                  console.log('[folder-dialog] input click');
-                  const elements = document.elementsFromPoint(event.clientX, event.clientY);
-                  console.log('[folder-dialog] elements from point', elements);
-                  console.log('[folder-dialog] active element', document.activeElement);
+                  event.stopPropagation();
+                  folderDialogInputRef.current?.focus({ preventScroll: true });
                 }}
                 onKeyDown={(event) => {
+                  event.stopPropagation();
                   const nativeEvent = event.nativeEvent as KeyboardEvent;
                   const isComposing = nativeEvent.isComposing || event.key === 'Process';
                   if (isComposing) return;
@@ -2247,8 +2206,9 @@ export default function App() {
                 }}
               />
               <div className="flex justify-end gap-2">
-                <button className="px-3 py-1.5 text-sm text-gray-500" onClick={() => setDialogState(null)}>{t('cancel')}</button>
+                <button draggable={false} className="px-3 py-1.5 text-sm text-gray-500" onClick={() => setDialogState(null)}>{t('cancel')}</button>
                 <button
+                  draggable={false}
                   className="px-3 py-1.5 text-sm font-semibold text-white bg-blue-600 rounded-lg"
                   onClick={async () => {
                     await submitFolderDialog();
@@ -2266,8 +2226,9 @@ export default function App() {
               <p className="text-sm text-gray-700">{t('confirmDeleteFolder')}</p>
               <p className="text-xs text-red-600">{t('confirmDeleteWarning')}</p>
               <div className="flex justify-end gap-2">
-                <button className="px-3 py-1.5 text-sm text-gray-500" onClick={() => setDialogState(null)}>{t('cancel')}</button>
+                <button draggable={false} className="px-3 py-1.5 text-sm text-gray-500" onClick={() => setDialogState(null)}>{t('cancel')}</button>
                 <button
+                  draggable={false}
                   className="px-3 py-1.5 text-sm font-semibold text-white bg-red-600 rounded-lg"
                   onClick={async () => {
                     await executeDeleteFolder(dialogState.folderId);
