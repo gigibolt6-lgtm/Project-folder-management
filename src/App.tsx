@@ -1665,7 +1665,13 @@ export default function App() {
     } else if (nextDialog?.type === 'create') {
       setFolderDialogInput('');
     }
-    window.requestAnimationFrame(() => setDialogState(nextDialog));
+    try {
+      const focused = await window.electronAPI?.focusAppWindow?.();
+      console.log('[folder-dialog] pre-open focusAppWindow result', focused);
+    } catch (error) {
+      console.warn('[folder-dialog] pre-open focusAppWindow failed', error);
+    }
+    window.setTimeout(() => setDialogState(nextDialog), 0);
   }, []);
 
   const submitFolderDialog = useCallback(async () => {
@@ -1692,10 +1698,12 @@ export default function App() {
       window.setTimeout(() => {
         const input = folderDialogInputRef.current;
         if (!input) return;
+        console.log('[folder-dialog] document.hasFocus()', document.hasFocus());
         console.log('[folder-dialog] before input focus activeElement', document.activeElement);
         input.focus({ preventScroll: true });
         input.select();
         console.log('[folder-dialog] after input focus activeElement', document.activeElement);
+        console.log('[folder-dialog] selection range', input.selectionStart, input.selectionEnd);
       }, 50);
     });
   }, []);
