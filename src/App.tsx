@@ -1677,13 +1677,28 @@ export default function App() {
     if (success) setDialogState(null);
   }, [dialogState, executeCreateChildFolder, executeRenameFolder, folderDialogInput, showToast, t]);
 
-  const focusFolderDialogInput = useCallback(async () => {
-    try {
-      await window.electronAPI?.focusAppWindow?.();
-    } catch (error) {
-      console.warn('[folder-dialog] focusAppWindow failed', error);
-    }
-    window.requestAnimationFrame(() => {
+const focusFolderDialogInput = useCallback(async () => {
+  try {
+    await window.electronAPI?.focusAppWindow?.();
+  } catch (error) {
+    console.warn('[folder-dialog] focusAppWindow failed', error);
+  }
+
+  window.requestAnimationFrame(() => {
+    const input = folderDialogInputRef.current;
+    if (!input) return;
+
+    input.focus({ preventScroll: true });
+    input.select();
+  });
+}, []);
+
+useLayoutEffect(() => {
+  if (!dialogState || (dialogState.type !== 'rename' && dialogState.type !== 'create')) return;
+
+  focusFolderDialogInput();
+}, [dialogState?.type, dialogState?.folderId, focusFolderDialogInput]);
+
       const input = folderDialogInputRef.current;
       if (!input) return;
       input.focus({ preventScroll: true });
@@ -1693,6 +1708,7 @@ export default function App() {
 
   useLayoutEffect(() => {
     if (!dialogState || (dialogState.type !== 'rename' && dialogState.type !== 'create')) return;
+
     void focusFolderDialogInput();
   }, [dialogState?.type, dialogState?.folderId, focusFolderDialogInput]);
 
