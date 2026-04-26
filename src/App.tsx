@@ -1655,24 +1655,32 @@ export default function App() {
   }, [dialogState?.type, dialogState?.folderId]);
 
   const openFolderDialog = useCallback((nextDialog: FolderDialogState) => {
-    console.log('[folder-dialog] open requested', nextDialog);
-    console.log('[folder-dialog] activeElement before open', document.activeElement);
-    setContextMenu(null);
-    setDraggingNodeId(null);
-    setDragOverNodeId(null);
-    if (nextDialog?.type === 'rename') {
-      setFolderDialogInput(nextDialog.value ?? '');
-    } else if (nextDialog?.type === 'create') {
-      setFolderDialogInput('');
-    }
-    try {
-      const focused = await window.electronAPI?.focusAppWindow?.();
-      console.log('[folder-dialog] pre-open focusAppWindow result', focused);
-    } catch (error) {
-      console.warn('[folder-dialog] pre-open focusAppWindow failed', error);
-    }
-    window.setTimeout(() => setDialogState(nextDialog), 0);
-  }, []);
+  console.log('[folder-dialog] open requested', nextDialog);
+  console.log('[folder-dialog] activeElement before open', document.activeElement);
+
+  setContextMenu(null);
+  setDraggingNodeId(null);
+  setDragOverNodeId(null);
+
+  if (nextDialog?.type === 'rename') {
+    setFolderDialogInput(nextDialog.value ?? '');
+  } else if (nextDialog?.type === 'create') {
+    setFolderDialogInput('');
+  }
+
+  window.setTimeout(() => {
+    void window.electronAPI?.focusAppWindow?.()
+      .then((focused) => {
+        console.log('[folder-dialog] pre-open focusAppWindow result', focused);
+      })
+      .catch((error) => {
+        console.warn('[folder-dialog] pre-open focusAppWindow failed', error);
+      })
+      .finally(() => {
+        setDialogState(nextDialog);
+      });
+  }, 0);
+}, []);
 
   const submitFolderDialog = useCallback(async () => {
     if (!dialogState || (dialogState.type !== 'rename' && dialogState.type !== 'create')) return;
