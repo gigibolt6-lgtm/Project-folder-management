@@ -15,6 +15,13 @@ contextBridge.exposeInMainWorld('folderApi', {
 contextBridge.exposeInMainWorld('electronAPI', {
   focusAppWindow: () => ipcRenderer.invoke('focus-app-window'),
   showFolderContextMenu: (payload) => ipcRenderer.invoke('folder:show-context-menu', payload),
+  onRendererRefocusRequest: (callback) => {
+    const listener = (_event, payload) => callback(payload);
+    ipcRenderer.on('app:renderer-refocus-request', listener);
+    return () => {
+      ipcRenderer.removeListener('app:renderer-refocus-request', listener);
+    };
+  },
   onFolderContextMenuCommand: (callback) => {
     const listener = (_event, command) => callback(command);
     ipcRenderer.on('folder:context-menu-command', listener);
