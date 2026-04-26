@@ -55,6 +55,8 @@ const isInteractiveElement = (target: EventTarget | null) => {
   return Boolean(target.closest('input, textarea, select, button, [contenteditable="true"]'));
 };
 
+const DEBUG_FOLDER_DIALOG = true;
+
 // --- Components ---
 
 const TagBadge = ({ tag, isSmall = false }: { tag: Tag, isSmall?: boolean }) => {
@@ -327,12 +329,6 @@ const FolderNodeComponent: React.FC<FolderNodeProps> = ({
     </motion.div>
   );
 };
-
-type ContextMenuState = {
-  x: number;
-  y: number;
-  folderId: string;
-} | null;
 
 type FolderDialogState =
   | { type: 'rename'; folderId: string; value: string }
@@ -834,13 +830,17 @@ export default function App() {
   const [newTagName, setNewTagName] = useState('');
   const [viewTransform, setViewTransform] = useState({ x: 100, y: 300, k: 1 });
   const containerRef = useRef<HTMLDivElement>(null);
-  const contextMenuRef = useRef<HTMLDivElement>(null);
   const folderHandleMapRef = useRef<Map<string, any>>(new Map());
   const [isFolderEditMode, setIsFolderEditMode] = useState(false);
-  const [contextMenu, setContextMenu] = useState<ContextMenuState>(null);
   const [dialogState, setDialogState] = useState<FolderDialogState>(null);
+  const [pendingFolderDialog, setPendingFolderDialog] = useState<FolderDialogState>(null);
   const [folderDialogInput, setFolderDialogInput] = useState('');
   const folderDialogInputRef = useRef<HTMLInputElement | null>(null);
+  const lastFolderDialogFocusAtRef = useRef(0);
+  const folderDialogFocusCountRef = useRef(0);
+  const lastDialogInputKeyDownAtRef = useRef(0);
+  const lastDialogBeforeInputAtRef = useRef(0);
+  const lastDialogChangeAtRef = useRef(0);
   const [draggingNodeId, setDraggingNodeId] = useState<string | null>(null);
   const [dragOverNodeId, setDragOverNodeId] = useState<string | null>(null);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
@@ -1094,6 +1094,21 @@ export default function App() {
     setToastMessage(message);
     window.setTimeout(() => setToastMessage(null), 2800);
   }, []);
+  const logFolderDialogSignal = useCallback((signal: string, payload: Record<string, unknown> = {}) => {
+    if (!DEBUG_FOLDER_DIALOG) return;
+    const input = folderDialogInputRef.current;
+    console.log(`[folder-dialog][signal] ${signal}`, {
+      time: Math.round(performance.now()),
+      dialogState,
+      documentHasFocus: document.hasFocus(),
+      activeElement: document.activeElement,
+      isInputActive: document.activeElement === input,
+      inputValue: input?.value,
+      selectionStart: input?.selectionStart,
+      selectionEnd: input?.selectionEnd,
+      ...payload,
+    });
+  }, [dialogState]);
   const isNodeDragEnabled = isFolderEditMode && !dialogState;
 
   const getFolderById = useCallback((id: string) => flatData.find(f => f.id === id), [flatData]);
@@ -1526,12 +1541,24 @@ export default function App() {
     }
   };
 
-  const handleNodeContextMenu = (e: React.MouseEvent, folder: FolderNode) => {
+  const handleNodeContextMenu = useCallback((e: React.MouseEvent, folder: FolderNode) => {
     if (!isFolderEditMode || dialogState) return;
-    console.log('[context-menu] open', folder.id, folder.path);
+    e.preventDefault();
+    e.stopPropagation();
+    console.log('[folder-context-menu] native open requested', {
+      folderId: folder.id,
+      folderPath: folder.path,
+      folderName: folder.name,
+      documentHasFocus: document.hasFocus(),
+      activeElement: document.activeElement,
+    });
     setState(prev => ({ ...prev, selectedFolderId: folder.id }));
-    setContextMenu({ x: e.clientX, y: e.clientY, folderId: folder.id });
-  };
+    void window.electronAPI?.showFolderContextMenu?.({
+      folderId: folder.id,
+      folderPath: folder.path,
+      folderName: folder.name,
+    });
+  }, [dialogState, isFolderEditMode]);
 
   const handleDropToNode = async (targetId: string) => {
     if (!isFolderEditMode || !draggingNodeId || dialogState) return;
@@ -1558,7 +1585,6 @@ export default function App() {
   const handleNodeDragStart = (nodeId: string) => {
     if (!isFolderEditMode || dialogState) return;
     console.log('[drag] start', nodeId);
-    setContextMenu(null);
     setDraggingNodeId(nodeId);
     setDragOverNodeId(null);
   };
@@ -1609,36 +1635,6 @@ export default function App() {
   }, [applyTreeZoom, dialogState, viewTransform.k]);
 
   useEffect(() => {
-    if (!contextMenu) return;
-    if (dialogState) return;
-    const handlePointerDown = (event: MouseEvent) => {
-      if (!contextMenuRef.current) return;
-      if (!contextMenuRef.current.contains(event.target as Node)) {
-        setContextMenu(null);
-      }
-    };
-    const handleEscape = (event: KeyboardEvent) => {
-      if (isInteractiveElement(event.target)) return;
-      if (event.key === 'Escape') {
-        setContextMenu(null);
-      }
-    };
-    window.addEventListener('mousedown', handlePointerDown);
-    window.addEventListener('keydown', handleEscape);
-    return () => {
-      window.removeEventListener('mousedown', handlePointerDown);
-      window.removeEventListener('keydown', handleEscape);
-    };
-  }, [contextMenu, dialogState]);
-
-  useEffect(() => {
-    if (dialogState && contextMenu) {
-      console.log('[folder-dialog] forcing context menu close before dialog mount', contextMenu.folderId);
-      setContextMenu(null);
-    }
-  }, [dialogState, contextMenu]);
-
-  useEffect(() => {
     if (!dialogState) {
       setFolderDialogInput('');
       return;
@@ -1655,9 +1651,13 @@ export default function App() {
   }, [dialogState?.type, dialogState?.folderId]);
 
   const openFolderDialog = useCallback((nextDialog: FolderDialogState) => {
+    logFolderDialogSignal('openFolderDialog:start', {
+      nextDialog,
+      contextMenuExists: false,
+      contextMenuElementExists: false,
+    });
     console.log('[folder-dialog] open requested', nextDialog);
     console.log('[folder-dialog] activeElement before open', document.activeElement);
-    setContextMenu(null);
     setDraggingNodeId(null);
     setDragOverNodeId(null);
     if (nextDialog?.type === 'rename') {
@@ -1665,14 +1665,87 @@ export default function App() {
     } else if (nextDialog?.type === 'create') {
       setFolderDialogInput('');
     }
-    try {
-      const focused = await window.electronAPI?.focusAppWindow?.();
-      console.log('[folder-dialog] pre-open focusAppWindow result', focused);
-    } catch (error) {
-      console.warn('[folder-dialog] pre-open focusAppWindow failed', error);
-    }
-    window.setTimeout(() => setDialogState(nextDialog), 0);
-  }, []);
+    logFolderDialogSignal('openFolderDialog:after-clear-states', {
+      nextDialog,
+      contextMenuExists: false,
+      contextMenuElementExists: false,
+    });
+    setPendingFolderDialog(nextDialog);
+  }, [logFolderDialogSignal]);
+
+  useEffect(() => {
+    const unsubscribe = window.electronAPI?.onFolderContextMenuCommand?.((command) => {
+      console.log('[folder-context-menu] command received', {
+        command,
+        documentHasFocus: document.hasFocus(),
+        activeElement: document.activeElement,
+      });
+
+      if (command.action === 'rename') {
+        openFolderDialog({
+          type: 'rename',
+          folderId: command.folderId,
+          value: command.folderName ?? '',
+        });
+        return;
+      }
+      if (command.action === 'create-child') {
+        openFolderDialog({
+          type: 'create',
+          folderId: command.folderId,
+          value: '',
+        });
+        return;
+      }
+      if (command.action === 'delete') {
+        openFolderDialog({
+          type: 'delete',
+          folderId: command.folderId,
+        });
+      }
+    });
+    return () => {
+      unsubscribe?.();
+    };
+  }, [openFolderDialog]);
+
+  useEffect(() => {
+    if (!pendingFolderDialog) return;
+    let cancelled = false;
+    let attempts = 0;
+
+    const openWhenDocumentFocused = () => {
+      if (cancelled) return;
+      attempts += 1;
+
+      logFolderDialogSignal('pendingFolderDialog:check-document-focus', {
+        attempts,
+        pendingFolderDialog,
+        documentHasFocus: document.hasFocus(),
+        activeElement: document.activeElement,
+      });
+
+      if (document.hasFocus() || attempts >= 10) {
+        if (!document.hasFocus()) {
+          console.warn('[folder-dialog][warn] opening dialog while document.hasFocus() is still false', {
+            attempts,
+            pendingFolderDialog,
+            activeElement: document.activeElement,
+          });
+        }
+        setDialogState(pendingFolderDialog);
+        setPendingFolderDialog(null);
+        return;
+      }
+
+      window.setTimeout(openWhenDocumentFocused, 50);
+    };
+
+    window.setTimeout(openWhenDocumentFocused, 50);
+    return () => {
+      cancelled = true;
+    };
+  }, [pendingFolderDialog, logFolderDialogSignal]);
 
   const submitFolderDialog = useCallback(async () => {
     if (!dialogState || (dialogState.type !== 'rename' && dialogState.type !== 'create')) return;
@@ -1687,43 +1760,104 @@ export default function App() {
     if (success) setDialogState(null);
   }, [dialogState, executeCreateChildFolder, executeRenameFolder, folderDialogInput, showToast, t]);
 
-  const focusFolderDialogInput = useCallback(async () => {
-    try {
-      const focused = await window.electronAPI?.focusAppWindow?.();
-      console.log('[folder-dialog] focusAppWindow result', focused);
-    } catch (error) {
-      console.warn('[folder-dialog] focusAppWindow failed', error);
+  const focusFolderDialogInput = useCallback(() => {
+    const now = performance.now();
+    const elapsed = now - lastFolderDialogFocusAtRef.current;
+    logFolderDialogSignal('focusFolderDialogInput:start', { elapsed });
+    if (elapsed < 300) {
+      folderDialogFocusCountRef.current += 1;
+      console.warn('[folder-dialog][warn] focusFolderDialogInput called repeatedly', {
+        count: folderDialogFocusCountRef.current,
+        elapsed,
+        dialogState,
+        activeElement: document.activeElement,
+        documentHasFocus: document.hasFocus(),
+      });
+    } else {
+      folderDialogFocusCountRef.current = 1;
     }
+    lastFolderDialogFocusAtRef.current = now;
     window.requestAnimationFrame(() => {
-      window.setTimeout(() => {
-        const input = folderDialogInputRef.current;
-        if (!input) return;
-        console.log('[folder-dialog] document.hasFocus()', document.hasFocus());
-        console.log('[folder-dialog] before input focus activeElement', document.activeElement);
-        input.focus({ preventScroll: true });
-        input.select();
-        console.log('[folder-dialog] after input focus activeElement', document.activeElement);
-        console.log('[folder-dialog] selection range', input.selectionStart, input.selectionEnd);
-      }, 50);
+      const input = folderDialogInputRef.current;
+      if (!input) {
+        logFolderDialogSignal('focusFolderDialogInput:input-null');
+        console.warn('[folder-dialog][warn] input ref is null during focus');
+        return;
+      }
+      logFolderDialogSignal('focusFolderDialogInput:before-focus');
+      input.focus({ preventScroll: true });
+      input.select();
+      logFolderDialogSignal('focusFolderDialogInput:after-focus-select');
+      if (!document.hasFocus()) {
+        console.warn('[folder-dialog][warn] document.hasFocus() is false after input focus/select', {
+          activeElement: document.activeElement,
+          input,
+        });
+      }
+      if (document.activeElement !== input) {
+        console.warn('[folder-dialog][warn] input is not activeElement after focus/select', {
+          activeElement: document.activeElement,
+          input,
+        });
+      }
+      if (input.selectionStart !== 0 || input.selectionEnd !== input.value.length) {
+        console.warn('[folder-dialog][warn] input is not fully selected after select()', {
+          value: input.value,
+          selectionStart: input.selectionStart,
+          selectionEnd: input.selectionEnd,
+        });
+      }
     });
-  }, []);
+  }, [dialogState, logFolderDialogSignal]);
 
   useEffect(() => {
     if (!dialogState || (dialogState.type !== 'rename' && dialogState.type !== 'create')) return;
+    logFolderDialogSignal('dialogState:opened');
+    const signalTimer = window.setTimeout(() => {
+      logFolderDialogSignal('dialogState:opened-after-timeout', {
+        contextMenuElementExists: false,
+      });
+    }, 0);
     void focusFolderDialogInput();
-    const timer = window.setTimeout(() => {
-      void focusFolderDialogInput();
-    }, 200);
-    return () => window.clearTimeout(timer);
-  }, [dialogState?.type, dialogState?.folderId, focusFolderDialogInput]);
+    return () => window.clearTimeout(signalTimer);
+  }, [dialogState?.type, dialogState?.folderId, focusFolderDialogInput, logFolderDialogSignal]);
+
+  useEffect(() => {
+    if (!dialogState || (dialogState.type !== 'rename' && dialogState.type !== 'create')) return;
+    const handleWindowKeyDownCapture = (event: KeyboardEvent) => {
+      logFolderDialogSignal('window:capture-keydown', {
+        key: event.key,
+        code: event.code,
+        defaultPrevented: event.defaultPrevented,
+        target: event.target,
+      });
+    };
+    const handleDocumentKeyDownCapture = (event: KeyboardEvent) => {
+      logFolderDialogSignal('document:capture-keydown', {
+        key: event.key,
+        code: event.code,
+        defaultPrevented: event.defaultPrevented,
+        target: event.target,
+      });
+    };
+
+    window.addEventListener('keydown', handleWindowKeyDownCapture, true);
+    document.addEventListener('keydown', handleDocumentKeyDownCapture, true);
+    return () => {
+      window.removeEventListener('keydown', handleWindowKeyDownCapture, true);
+      document.removeEventListener('keydown', handleDocumentKeyDownCapture, true);
+    };
+  }, [dialogState, logFolderDialogSignal]);
+
+  useEffect(() => {
+    if (!dialogState || (dialogState.type !== 'rename' && dialogState.type !== 'create')) return;
+    logFolderDialogSignal('dialogState:context-menu-dom-check-skipped-native');
+  }, [dialogState, logFolderDialogSignal]);
 
   useEffect(() => {
     if (!dialogState) return;
     console.log('[folder-dialog] state set', dialogState);
     console.log('[folder-dialog] activeElement after state set', document.activeElement);
-    if (contextMenuRef.current) {
-      console.log('[folder-dialog] context menu DOM still mounted', contextMenuRef.current);
-    }
   }, [dialogState]);
 
   
@@ -2071,78 +2205,6 @@ export default function App() {
       </div>
     </footer>
 
-    {contextMenu && isFolderEditMode && !dialogState && (
-      <div
-        ref={contextMenuRef}
-        className="fixed z-[9999] min-w-44 bg-white border border-gray-200 rounded-lg shadow-xl p-1"
-        style={{ left: contextMenu.x, top: contextMenu.y }}
-        onMouseDown={(event) => {
-          event.stopPropagation();
-        }}
-        onPointerDown={(event) => {
-          event.stopPropagation();
-        }}
-        onKeyDown={(event) => {
-          event.stopPropagation();
-        }}
-        onClick={(event) => {
-          event.stopPropagation();
-        }}
-      >
-        <button
-          className="w-full text-left px-3 py-2 text-xs font-medium hover:bg-gray-100 rounded"
-          onClick={() => {
-            const folderId = contextMenu.folderId;
-            const folder = getFolderById(folderId);
-            console.log('[context-menu] rename click', folderId);
-            if (!folder) {
-              console.warn('[context-menu] rename target not found', folderId);
-              showToast(t('folderNotFound'));
-              setContextMenu(null);
-              return;
-            }
-            openFolderDialog({ type: 'rename', folderId, value: folder.name ?? '' });
-          }}
-        >
-          {t('renameFolder')}
-        </button>
-        <button
-          className="w-full text-left px-3 py-2 text-xs font-medium hover:bg-gray-100 rounded"
-          onClick={() => {
-            const folderId = contextMenu.folderId;
-            const folder = getFolderById(folderId);
-            console.log('[context-menu] create click', folderId);
-            if (!folder) {
-              console.warn('[context-menu] create target not found', folderId);
-              showToast(t('folderNotFound'));
-              setContextMenu(null);
-              return;
-            }
-            openFolderDialog({ type: 'create', folderId, value: '' });
-          }}
-        >
-          {t('createChildFolder')}
-        </button>
-        <button
-          className="w-full text-left px-3 py-2 text-xs font-medium text-red-600 hover:bg-red-50 rounded"
-          onClick={() => {
-            const folderId = contextMenu.folderId;
-            const folder = getFolderById(folderId);
-            console.log('[context-menu] delete click', folderId);
-            if (!folder) {
-              console.warn('[context-menu] delete target not found', folderId);
-              showToast(t('folderNotFound'));
-              setContextMenu(null);
-              return;
-            }
-            openFolderDialog({ type: 'delete', folderId });
-          }}
-        >
-          {t('deleteFolder')}
-        </button>
-      </div>
-    )}
-
     {dialogState && typeof document !== 'undefined' && createPortal(
       <div className="fixed inset-0 z-[10010] flex items-center justify-center">
         <div
@@ -2167,42 +2229,93 @@ export default function App() {
                 draggable={false}
                 className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm outline-none focus:border-blue-400"
                 value={folderDialogInput}
-                onChange={(event) => {
-                  console.log('[folder-dialog] onChange', event.target.value);
-                  setFolderDialogInput(event.target.value);
-                }}
-                onFocus={() => {
-                  console.log('[folder-dialog] onFocus');
-                  console.log('[folder-dialog] activeElement', document.activeElement);
-                }}
-                onBlur={() => {
-                  console.log('[folder-dialog] onBlur');
-                  console.log('[folder-dialog] activeElement', document.activeElement);
-                }}
-                onBeforeInput={() => {
-                  console.log('[folder-dialog] onBeforeInput');
-                }}
                 onPointerDown={(event) => {
                   event.stopPropagation();
-                  void focusFolderDialogInput();
+                  logFolderDialogSignal('input:pointerdown', {
+                    button: event.button,
+                    defaultPrevented: event.defaultPrevented,
+                  });
                 }}
-                onMouseDown={(event) => event.stopPropagation()}
+                onMouseDown={(event) => {
+                  event.stopPropagation();
+                  logFolderDialogSignal('input:mousedown', {
+                    button: event.button,
+                    defaultPrevented: event.defaultPrevented,
+                  });
+                }}
                 onClick={(event) => {
                   event.stopPropagation();
-                  folderDialogInputRef.current?.focus({ preventScroll: true });
+                  logFolderDialogSignal('input:click', {
+                    defaultPrevented: event.defaultPrevented,
+                  });
+                }}
+                onFocus={() => {
+                  logFolderDialogSignal('input:focus');
+                }}
+                onBlur={() => {
+                  logFolderDialogSignal('input:blur');
+                }}
+                onBeforeInput={(event) => {
+                  lastDialogBeforeInputAtRef.current = performance.now();
+                  const nativeEvent = event.nativeEvent;
+                  logFolderDialogSignal('input:beforeinput', {
+                    defaultPrevented: event.defaultPrevented,
+                    inputType: nativeEvent instanceof InputEvent ? nativeEvent.inputType : undefined,
+                    data: nativeEvent instanceof InputEvent ? nativeEvent.data : undefined,
+                  });
+                }}
+                onInput={(event) => {
+                  logFolderDialogSignal('input:input', {
+                    value: event.currentTarget.value,
+                  });
+                }}
+                onChange={(event) => {
+                  lastDialogChangeAtRef.current = performance.now();
+                  logFolderDialogSignal('input:change', {
+                    value: event.target.value,
+                  });
+                  setFolderDialogInput(event.target.value);
                 }}
                 onKeyDown={(event) => {
                   event.stopPropagation();
-                  console.log('[folder-dialog] onKeyDown', event.key, event.defaultPrevented);
+                  const key = event.key;
+                  lastDialogInputKeyDownAtRef.current = performance.now();
+                  logFolderDialogSignal('input:keydown', {
+                    key,
+                    code: event.code,
+                    defaultPrevented: event.defaultPrevented,
+                  });
+                  window.setTimeout(() => {
+                    logFolderDialogSignal('input:after-keydown-check', {
+                      key,
+                      valueAfterKeyDown: folderDialogInputRef.current?.value,
+                    });
+                  }, 50);
+                  window.setTimeout(() => {
+                    const now = performance.now();
+                    const beforeInputMissing = now - lastDialogBeforeInputAtRef.current > 200;
+                    const changeMissing = now - lastDialogChangeAtRef.current > 200;
+                    if (key.length === 1 && beforeInputMissing && changeMissing) {
+                      console.warn('[folder-dialog][warn] keydown received but beforeinput/change did not follow', {
+                        key,
+                        defaultPrevented: event.defaultPrevented,
+                        documentHasFocus: document.hasFocus(),
+                        activeElement: document.activeElement,
+                        inputValue: folderDialogInputRef.current?.value,
+                        selectionStart: folderDialogInputRef.current?.selectionStart,
+                        selectionEnd: folderDialogInputRef.current?.selectionEnd,
+                      });
+                    }
+                  }, 220);
                   const nativeEvent = event.nativeEvent as KeyboardEvent;
-                  const isComposing = nativeEvent.isComposing || event.key === 'Process';
+                  const isComposing = nativeEvent.isComposing || key === 'Process';
                   if (isComposing) return;
-                  if (event.key === 'Escape') {
+                  if (key === 'Escape') {
                     event.preventDefault();
                     setDialogState(null);
                     return;
                   }
-                  if (event.key !== 'Enter') return;
+                  if (key !== 'Enter') return;
                   event.preventDefault();
                   void submitFolderDialog();
                 }}
@@ -2231,42 +2344,93 @@ export default function App() {
                 draggable={false}
                 className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm outline-none focus:border-blue-400"
                 value={folderDialogInput}
-                onChange={(event) => {
-                  console.log('[folder-dialog] onChange', event.target.value);
-                  setFolderDialogInput(event.target.value);
-                }}
-                onFocus={() => {
-                  console.log('[folder-dialog] onFocus');
-                  console.log('[folder-dialog] activeElement', document.activeElement);
-                }}
-                onBlur={() => {
-                  console.log('[folder-dialog] onBlur');
-                  console.log('[folder-dialog] activeElement', document.activeElement);
-                }}
-                onBeforeInput={() => {
-                  console.log('[folder-dialog] onBeforeInput');
-                }}
                 onPointerDown={(event) => {
                   event.stopPropagation();
-                  void focusFolderDialogInput();
+                  logFolderDialogSignal('input:pointerdown', {
+                    button: event.button,
+                    defaultPrevented: event.defaultPrevented,
+                  });
                 }}
-                onMouseDown={(event) => event.stopPropagation()}
+                onMouseDown={(event) => {
+                  event.stopPropagation();
+                  logFolderDialogSignal('input:mousedown', {
+                    button: event.button,
+                    defaultPrevented: event.defaultPrevented,
+                  });
+                }}
                 onClick={(event) => {
                   event.stopPropagation();
-                  folderDialogInputRef.current?.focus({ preventScroll: true });
+                  logFolderDialogSignal('input:click', {
+                    defaultPrevented: event.defaultPrevented,
+                  });
+                }}
+                onFocus={() => {
+                  logFolderDialogSignal('input:focus');
+                }}
+                onBlur={() => {
+                  logFolderDialogSignal('input:blur');
+                }}
+                onBeforeInput={(event) => {
+                  lastDialogBeforeInputAtRef.current = performance.now();
+                  const nativeEvent = event.nativeEvent;
+                  logFolderDialogSignal('input:beforeinput', {
+                    defaultPrevented: event.defaultPrevented,
+                    inputType: nativeEvent instanceof InputEvent ? nativeEvent.inputType : undefined,
+                    data: nativeEvent instanceof InputEvent ? nativeEvent.data : undefined,
+                  });
+                }}
+                onInput={(event) => {
+                  logFolderDialogSignal('input:input', {
+                    value: event.currentTarget.value,
+                  });
+                }}
+                onChange={(event) => {
+                  lastDialogChangeAtRef.current = performance.now();
+                  logFolderDialogSignal('input:change', {
+                    value: event.target.value,
+                  });
+                  setFolderDialogInput(event.target.value);
                 }}
                 onKeyDown={(event) => {
                   event.stopPropagation();
-                  console.log('[folder-dialog] onKeyDown', event.key, event.defaultPrevented);
+                  const key = event.key;
+                  lastDialogInputKeyDownAtRef.current = performance.now();
+                  logFolderDialogSignal('input:keydown', {
+                    key,
+                    code: event.code,
+                    defaultPrevented: event.defaultPrevented,
+                  });
+                  window.setTimeout(() => {
+                    logFolderDialogSignal('input:after-keydown-check', {
+                      key,
+                      valueAfterKeyDown: folderDialogInputRef.current?.value,
+                    });
+                  }, 50);
+                  window.setTimeout(() => {
+                    const now = performance.now();
+                    const beforeInputMissing = now - lastDialogBeforeInputAtRef.current > 200;
+                    const changeMissing = now - lastDialogChangeAtRef.current > 200;
+                    if (key.length === 1 && beforeInputMissing && changeMissing) {
+                      console.warn('[folder-dialog][warn] keydown received but beforeinput/change did not follow', {
+                        key,
+                        defaultPrevented: event.defaultPrevented,
+                        documentHasFocus: document.hasFocus(),
+                        activeElement: document.activeElement,
+                        inputValue: folderDialogInputRef.current?.value,
+                        selectionStart: folderDialogInputRef.current?.selectionStart,
+                        selectionEnd: folderDialogInputRef.current?.selectionEnd,
+                      });
+                    }
+                  }, 220);
                   const nativeEvent = event.nativeEvent as KeyboardEvent;
-                  const isComposing = nativeEvent.isComposing || event.key === 'Process';
+                  const isComposing = nativeEvent.isComposing || key === 'Process';
                   if (isComposing) return;
-                  if (event.key === 'Escape') {
+                  if (key === 'Escape') {
                     event.preventDefault();
                     setDialogState(null);
                     return;
                   }
-                  if (event.key !== 'Enter') return;
+                  if (key !== 'Enter') return;
                   event.preventDefault();
                   void submitFolderDialog();
                 }}

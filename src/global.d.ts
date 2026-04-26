@@ -39,6 +39,17 @@ declare global {
     };
     electronAPI?: {
       focusAppWindow?: () => Promise<boolean>;
+      showFolderContextMenu?: (payload: {
+        folderId: string;
+        folderPath?: string;
+        folderName?: string;
+      }) => Promise<boolean>;
+      onFolderContextMenuCommand?: (callback: (command: {
+        action: 'rename' | 'create-child' | 'delete';
+        folderId: string;
+        folderPath?: string;
+        folderName?: string;
+      }) => void) => (() => void);
     };
   }
 }
