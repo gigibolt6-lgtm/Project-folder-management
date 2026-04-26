@@ -2055,13 +2055,13 @@ export default function App() {
                        </div>
                        <div className="space-y-2">
                           {state.sources.map(src => (
-                            <div key={src.id} className="flex items-center gap-3 p-3 bg-gray-50/50 rounded-xl border border-gray-100 group">
-                              <Folder size={18} className="text-amber-500" />
-                              <div className="flex-1 min-w-0">
-                                <div className="text-sm font-bold text-gray-700">{src.name}</div>
-                                <div className="text-[10px] text-gray-400 font-mono truncate">{src.path}</div>
+                            <div key={src.id} className="flex items-center gap-3 min-w-0 p-3 bg-gray-50/50 rounded-xl border border-gray-100 group">
+                              <Folder size={18} className="text-amber-500 shrink-0" />
+                              <div className="flex-1 min-w-0 overflow-hidden">
+                                <div className="text-sm font-bold text-gray-700 truncate" title={src.name}>{src.name}</div>
+                                <div className="text-[10px] text-gray-400 font-mono truncate" title={src.path}>{src.path}</div>
                               </div>
-                              <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                              <div className="flex items-center gap-1 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
                                 <button className="p-1.5 hover:bg-white rounded-lg text-gray-400 hover:text-red-500 transition-colors">
                                   <Trash2 size={14} onClick={() => setState(prev => ({ ...prev, sources: prev.sources.filter(s => s.id !== src.id) }))} />
                                 </button>
