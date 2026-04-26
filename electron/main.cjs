@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, shell, dialog } = require('electron');
+const { app, BrowserWindow, ipcMain, shell, dialog, Menu } = require('electron');
 const path = require('path');
 const fs = require('fs');
 
@@ -69,6 +69,42 @@ ipcMain.handle('focus-app-window', async (event) => {
     });
   }
   return focused;
+});
+
+ipcMain.handle('folder:show-context-menu', async (event, payload) => {
+  const win = BrowserWindow.fromWebContents(event.sender) || mainWindow;
+  if (!win || win.isDestroyed()) {
+    console.warn('[folder-context-menu][warn] target window not found');
+    return false;
+  }
+
+  const folderId = payload?.folderId;
+  const folderPath = payload?.folderPath;
+  const folderName = payload?.folderName;
+  if (!folderId) {
+    console.warn('[folder-context-menu][warn] folderId is missing', payload);
+    return false;
+  }
+
+  const sendCommand = (action) => {
+    if (win.isDestroyed()) return;
+    win.webContents.send('folder:context-menu-command', {
+      action,
+      folderId,
+      folderPath,
+      folderName,
+    });
+  };
+
+  const menu = Menu.buildFromTemplate([
+    { label: 'フォルダ名変更', click: () => sendCommand('rename') },
+    { label: '子フォルダ作成', click: () => sendCommand('create-child') },
+    { type: 'separator' },
+    { label: 'フォルダ削除', click: () => sendCommand('delete') },
+  ]);
+
+  menu.popup({ window: win });
+  return true;
 });
 
 ipcMain.handle('folder:open', async (_event, folderPath) => {

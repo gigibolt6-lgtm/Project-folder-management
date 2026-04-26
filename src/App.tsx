@@ -330,12 +330,6 @@ const FolderNodeComponent: React.FC<FolderNodeProps> = ({
   );
 };
 
-type ContextMenuState = {
-  x: number;
-  y: number;
-  folderId: string;
-} | null;
-
 type FolderDialogState =
   | { type: 'rename'; folderId: string; value: string }
   | { type: 'create'; folderId: string; value: string }
@@ -836,10 +830,8 @@ export default function App() {
   const [newTagName, setNewTagName] = useState('');
   const [viewTransform, setViewTransform] = useState({ x: 100, y: 300, k: 1 });
   const containerRef = useRef<HTMLDivElement>(null);
-  const contextMenuRef = useRef<HTMLDivElement>(null);
   const folderHandleMapRef = useRef<Map<string, any>>(new Map());
   const [isFolderEditMode, setIsFolderEditMode] = useState(false);
-  const [contextMenu, setContextMenu] = useState<ContextMenuState>(null);
   const [dialogState, setDialogState] = useState<FolderDialogState>(null);
   const [pendingFolderDialog, setPendingFolderDialog] = useState<FolderDialogState>(null);
   const [folderDialogInput, setFolderDialogInput] = useState('');
@@ -1549,12 +1541,24 @@ export default function App() {
     }
   };
 
-  const handleNodeContextMenu = (e: React.MouseEvent, folder: FolderNode) => {
+  const handleNodeContextMenu = useCallback((e: React.MouseEvent, folder: FolderNode) => {
     if (!isFolderEditMode || dialogState) return;
-    console.log('[context-menu] open', folder.id, folder.path);
+    e.preventDefault();
+    e.stopPropagation();
+    console.log('[folder-context-menu] native open requested', {
+      folderId: folder.id,
+      folderPath: folder.path,
+      folderName: folder.name,
+      documentHasFocus: document.hasFocus(),
+      activeElement: document.activeElement,
+    });
     setState(prev => ({ ...prev, selectedFolderId: folder.id }));
-    setContextMenu({ x: e.clientX, y: e.clientY, folderId: folder.id });
-  };
+    void window.electronAPI?.showFolderContextMenu?.({
+      folderId: folder.id,
+      folderPath: folder.path,
+      folderName: folder.name,
+    });
+  }, [dialogState, isFolderEditMode]);
 
   const handleDropToNode = async (targetId: string) => {
     if (!isFolderEditMode || !draggingNodeId || dialogState) return;
@@ -1581,7 +1585,6 @@ export default function App() {
   const handleNodeDragStart = (nodeId: string) => {
     if (!isFolderEditMode || dialogState) return;
     console.log('[drag] start', nodeId);
-    setContextMenu(null);
     setDraggingNodeId(nodeId);
     setDragOverNodeId(null);
   };
@@ -1632,36 +1635,6 @@ export default function App() {
   }, [applyTreeZoom, dialogState, viewTransform.k]);
 
   useEffect(() => {
-    if (!contextMenu) return;
-    if (dialogState) return;
-    const handlePointerDown = (event: MouseEvent) => {
-      if (!contextMenuRef.current) return;
-      if (!contextMenuRef.current.contains(event.target as Node)) {
-        setContextMenu(null);
-      }
-    };
-    const handleEscape = (event: KeyboardEvent) => {
-      if (isInteractiveElement(event.target)) return;
-      if (event.key === 'Escape') {
-        setContextMenu(null);
-      }
-    };
-    window.addEventListener('mousedown', handlePointerDown);
-    window.addEventListener('keydown', handleEscape);
-    return () => {
-      window.removeEventListener('mousedown', handlePointerDown);
-      window.removeEventListener('keydown', handleEscape);
-    };
-  }, [contextMenu, dialogState]);
-
-  useEffect(() => {
-    if (dialogState && contextMenu) {
-      console.log('[folder-dialog] forcing context menu close before dialog mount', contextMenu.folderId);
-      setContextMenu(null);
-    }
-  }, [dialogState, contextMenu]);
-
-  useEffect(() => {
     if (!dialogState) {
       setFolderDialogInput('');
       return;
@@ -1680,12 +1653,11 @@ export default function App() {
   const openFolderDialog = useCallback((nextDialog: FolderDialogState) => {
     logFolderDialogSignal('openFolderDialog:start', {
       nextDialog,
-      contextMenuExists: Boolean(contextMenu),
-      contextMenuElementExists: Boolean(contextMenuRef.current),
+      contextMenuExists: false,
+      contextMenuElementExists: false,
     });
     console.log('[folder-dialog] open requested', nextDialog);
     console.log('[folder-dialog] activeElement before open', document.activeElement);
-    setContextMenu(null);
     setDraggingNodeId(null);
     setDragOverNodeId(null);
     if (nextDialog?.type === 'rename') {
@@ -1695,11 +1667,47 @@ export default function App() {
     }
     logFolderDialogSignal('openFolderDialog:after-clear-states', {
       nextDialog,
-      contextMenuExists: Boolean(contextMenu),
-      contextMenuElementExists: Boolean(contextMenuRef.current),
+      contextMenuExists: false,
+      contextMenuElementExists: false,
     });
     setPendingFolderDialog(nextDialog);
-  }, [contextMenu, logFolderDialogSignal]);
+  }, [logFolderDialogSignal]);
+
+  useEffect(() => {
+    const unsubscribe = window.electronAPI?.onFolderContextMenuCommand?.((command) => {
+      console.log('[folder-context-menu] command received', {
+        command,
+        documentHasFocus: document.hasFocus(),
+        activeElement: document.activeElement,
+      });
+
+      if (command.action === 'rename') {
+        openFolderDialog({
+          type: 'rename',
+          folderId: command.folderId,
+          value: command.folderName ?? '',
+        });
+        return;
+      }
+      if (command.action === 'create-child') {
+        openFolderDialog({
+          type: 'create',
+          folderId: command.folderId,
+          value: '',
+        });
+        return;
+      }
+      if (command.action === 'delete') {
+        openFolderDialog({
+          type: 'delete',
+          folderId: command.folderId,
+        });
+      }
+    });
+    return () => {
+      unsubscribe?.();
+    };
+  }, [openFolderDialog]);
 
   useEffect(() => {
     if (!pendingFolderDialog) return;
@@ -1807,7 +1815,7 @@ export default function App() {
     logFolderDialogSignal('dialogState:opened');
     const signalTimer = window.setTimeout(() => {
       logFolderDialogSignal('dialogState:opened-after-timeout', {
-        contextMenuElementExists: Boolean(contextMenuRef.current),
+        contextMenuElementExists: false,
       });
     }, 0);
     void focusFolderDialogInput();
@@ -1843,24 +1851,13 @@ export default function App() {
 
   useEffect(() => {
     if (!dialogState || (dialogState.type !== 'rename' && dialogState.type !== 'create')) return;
-    const timer = window.setTimeout(() => {
-      if (contextMenuRef.current) {
-        console.warn('[folder-dialog][warn] context menu DOM still exists while folder dialog is open', {
-          dialogState,
-          contextMenuElement: contextMenuRef.current,
-        });
-      }
-    }, 0);
-    return () => window.clearTimeout(timer);
-  }, [dialogState]);
+    logFolderDialogSignal('dialogState:context-menu-dom-check-skipped-native');
+  }, [dialogState, logFolderDialogSignal]);
 
   useEffect(() => {
     if (!dialogState) return;
     console.log('[folder-dialog] state set', dialogState);
     console.log('[folder-dialog] activeElement after state set', document.activeElement);
-    if (contextMenuRef.current) {
-      console.log('[folder-dialog] context menu DOM still mounted', contextMenuRef.current);
-    }
   }, [dialogState]);
 
   
@@ -2207,78 +2204,6 @@ export default function App() {
         <span className="shrink-0">{t('statusMode')}: {currentModeLabel}</span>
       </div>
     </footer>
-
-    {contextMenu && isFolderEditMode && !dialogState && (
-      <div
-        ref={contextMenuRef}
-        className="fixed z-[9999] min-w-44 bg-white border border-gray-200 rounded-lg shadow-xl p-1"
-        style={{ left: contextMenu.x, top: contextMenu.y }}
-        onMouseDown={(event) => {
-          event.stopPropagation();
-        }}
-        onPointerDown={(event) => {
-          event.stopPropagation();
-        }}
-        onKeyDown={(event) => {
-          event.stopPropagation();
-        }}
-        onClick={(event) => {
-          event.stopPropagation();
-        }}
-      >
-        <button
-          className="w-full text-left px-3 py-2 text-xs font-medium hover:bg-gray-100 rounded"
-          onClick={() => {
-            const folderId = contextMenu.folderId;
-            const folder = getFolderById(folderId);
-            console.log('[context-menu] rename click', folderId);
-            if (!folder) {
-              console.warn('[context-menu] rename target not found', folderId);
-              showToast(t('folderNotFound'));
-              setContextMenu(null);
-              return;
-            }
-            openFolderDialog({ type: 'rename', folderId, value: folder.name ?? '' });
-          }}
-        >
-          {t('renameFolder')}
-        </button>
-        <button
-          className="w-full text-left px-3 py-2 text-xs font-medium hover:bg-gray-100 rounded"
-          onClick={() => {
-            const folderId = contextMenu.folderId;
-            const folder = getFolderById(folderId);
-            console.log('[context-menu] create click', folderId);
-            if (!folder) {
-              console.warn('[context-menu] create target not found', folderId);
-              showToast(t('folderNotFound'));
-              setContextMenu(null);
-              return;
-            }
-            openFolderDialog({ type: 'create', folderId, value: '' });
-          }}
-        >
-          {t('createChildFolder')}
-        </button>
-        <button
-          className="w-full text-left px-3 py-2 text-xs font-medium text-red-600 hover:bg-red-50 rounded"
-          onClick={() => {
-            const folderId = contextMenu.folderId;
-            const folder = getFolderById(folderId);
-            console.log('[context-menu] delete click', folderId);
-            if (!folder) {
-              console.warn('[context-menu] delete target not found', folderId);
-              showToast(t('folderNotFound'));
-              setContextMenu(null);
-              return;
-            }
-            openFolderDialog({ type: 'delete', folderId });
-          }}
-        >
-          {t('deleteFolder')}
-        </button>
-      </div>
-    )}
 
     {dialogState && typeof document !== 'undefined' && createPortal(
       <div className="fixed inset-0 z-[10010] flex items-center justify-center">
