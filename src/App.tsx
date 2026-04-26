@@ -1701,13 +1701,6 @@ export default function App() {
                     </button>
                   );
                 })}
-                <button 
-                  onClick={() => setSettingsCategory('tags')}
-                  className="flex items-center gap-1 px-2.5 py-1.5 border border-dashed border-gray-200 text-gray-400 rounded-lg text-xs hover:border-blue-400 hover:text-blue-500 transition-colors"
-                >
-                  <Plus size={12} />
-                  {t('newTag')}
-                </button>
               </div>
             )}
           </section>
@@ -1718,7 +1711,6 @@ export default function App() {
     {/* --- Bottom Status Bar --- */}
     <footer className="h-8 bg-gray-50 border-t border-gray-200 flex items-center px-4 justify-between shrink-0 z-50">
       <div className="flex items-center gap-4">
-        <span className="text-[10px] text-gray-500 font-medium">{t('connectionTo')}: 192.168.1.10 ({t('online')})</span>
         <span className="text-[10px] text-gray-500 font-medium">
           {t('totalFolders')}: {flatData.length.toLocaleString()}
         </span>
