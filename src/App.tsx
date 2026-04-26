@@ -1709,20 +1709,7 @@ export default function App() {
     return () => window.clearTimeout(timer);
   }, [dialogState?.type, dialogState?.folderId]);
 
-  const submitFolderDialog = useCallback(async () => {
-    if (!dialogState || (dialogState.type !== 'rename' && dialogState.type !== 'create')) return;
-    console.log('[folder-dialog] submit draft', folderDialogInput);
-    const nextName = folderDialogInput.trim();
-    if (!nextName) {
-      showToast(t('emptyFolderName'));
-      return;
-    }
-    console.log('[folder-dialog] execute', dialogState.type, dialogState.folderId, folderDialogInput);
-    const success = dialogState.type === 'rename'
-      ? await executeRenameFolder(dialogState.folderId, nextName)
-      : await executeCreateChildFolder(dialogState.folderId, nextName);
-    if (success) setDialogState(null);
-  }, [dialogState, executeCreateChildFolder, executeRenameFolder, folderDialogInput, showToast, t]);
+  
 
   useEffect(() => {
     if (!dialogState) return;
