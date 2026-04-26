@@ -728,6 +728,8 @@ export default function App() {
   };
 
   const [settingsCategory, setSettingsCategory] = useState<'root' | 'lang' | 'tags' | 'env' | 'edit'>('root');
+  const [isAddingTag, setIsAddingTag] = useState(false);
+  const [newTagName, setNewTagName] = useState('');
   const [viewTransform, setViewTransform] = useState({ x: 100, y: 300, k: 1 });
   const containerRef = useRef<HTMLDivElement>(null);
   const contextMenuRef = useRef<HTMLDivElement>(null);
@@ -739,6 +741,20 @@ export default function App() {
   const [dragOverNodeId, setDragOverNodeId] = useState<string | null>(null);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [nodeSizeMap, setNodeSizeMap] = useState<Record<string, NodeSize>>({});
+
+  const createTag = useCallback((rawTagName: string) => {
+    const name = rawTagName.trim();
+    if (!name) return;
+
+    const fallbackColors = ['#3B82F6', '#EF4444', '#10B981', '#F59E0B', '#8B5CF6', '#EC4899'];
+    const newTag: Tag = {
+      id: `tag-${Date.now()}`,
+      name,
+      color: fallbackColors[state.tags.length % fallbackColors.length],
+      isActive: true
+    };
+    setState(prev => ({ ...prev, tags: [...prev.tags, newTag] }));
+  }, [state.tags.length]);
 
   const updateNodePathRecursive = useCallback((node: FolderNode, parentPath: string): FolderNode => {
     const basePath = parentPath ? `${parentPath}/${node.name}` : `/${node.name}`;
@@ -1977,11 +1993,7 @@ export default function App() {
                            <label className="text-[11px] font-bold text-gray-400 uppercase tracking-wider">{t('tagSettings')}</label>
                            <button 
                              onClick={() => {
-                               const name = prompt(t('promptTagName'));
-                               if (name) {
-                                 const newTag: Tag = { id: `tag-${Date.now()}`, name, color: '#3B82F6', isActive: true };
-                                 setState(prev => ({ ...prev, tags: [...prev.tags, newTag] }));
-                               }
+                               setIsAddingTag(true);
                              }}
                              className="text-xs font-bold text-blue-600 hover:underline flex items-center gap-1"
                            >
@@ -1989,6 +2001,48 @@ export default function App() {
                              {t('addTag')}
                            </button>
                         </div>
+                        {isAddingTag && (
+                          <div className="flex items-center gap-2 p-3 bg-blue-50/40 border border-blue-100 rounded-xl">
+                            <input
+                              autoFocus
+                              type="text"
+                              value={newTagName}
+                              placeholder={t('promptTagName')}
+                              onChange={(e) => setNewTagName(e.target.value)}
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter') {
+                                  createTag(newTagName);
+                                  setNewTagName('');
+                                  setIsAddingTag(false);
+                                }
+                                if (e.key === 'Escape') {
+                                  setNewTagName('');
+                                  setIsAddingTag(false);
+                                }
+                              }}
+                              className="flex-1 text-sm rounded-lg border border-blue-200 bg-white px-3 py-2 outline-none focus:ring-2 focus:ring-blue-200"
+                            />
+                            <button
+                              onClick={() => {
+                                createTag(newTagName);
+                                setNewTagName('');
+                                setIsAddingTag(false);
+                              }}
+                              className="text-xs font-bold text-white bg-blue-600 px-3 py-2 rounded-lg hover:bg-blue-700 transition-colors"
+                            >
+                              {t('addTag')}
+                            </button>
+                            <button
+                              onClick={() => {
+                                setNewTagName('');
+                                setIsAddingTag(false);
+                              }}
+                              className="text-xs font-bold text-gray-500 hover:text-gray-700 px-2 py-2"
+                            >
+                              {t('cancel')}
+                            </button>
+                          </div>
+                        )}
                         <div className="grid grid-cols-1 gap-3">
                            {state.tags.map(tag => (
                              <div key={tag.id} className="flex items-center gap-4 p-4 bg-gray-50/50 border border-gray-100 rounded-2xl group">
