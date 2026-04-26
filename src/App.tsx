@@ -1633,7 +1633,6 @@ export default function App() {
 
   useEffect(() => {
     if (dialogState && contextMenu) {
-      console.log('[folder-dialog] forcing context menu close before dialog mount', contextMenu.folderId);
       setContextMenu(null);
     }
   }, [dialogState, contextMenu]);
