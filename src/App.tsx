@@ -841,6 +841,7 @@ export default function App() {
   const [isFolderEditMode, setIsFolderEditMode] = useState(false);
   const [contextMenu, setContextMenu] = useState<ContextMenuState>(null);
   const [dialogState, setDialogState] = useState<FolderDialogState>(null);
+  const [pendingFolderDialog, setPendingFolderDialog] = useState<FolderDialogState>(null);
   const [folderDialogInput, setFolderDialogInput] = useState('');
   const folderDialogInputRef = useRef<HTMLInputElement | null>(null);
   const lastFolderDialogFocusAtRef = useRef(0);
@@ -1676,7 +1677,7 @@ export default function App() {
     setFolderDialogInput('');
   }, [dialogState?.type, dialogState?.folderId]);
 
-  const openFolderDialog = useCallback(async (nextDialog: FolderDialogState) => {
+  const openFolderDialog = useCallback((nextDialog: FolderDialogState) => {
     logFolderDialogSignal('openFolderDialog:start', {
       nextDialog,
       contextMenuExists: Boolean(contextMenu),
@@ -1697,14 +1698,46 @@ export default function App() {
       contextMenuExists: Boolean(contextMenu),
       contextMenuElementExists: Boolean(contextMenuRef.current),
     });
-    try {
-      const focused = await window.electronAPI?.focusAppWindow?.();
-      console.log('[folder-dialog] pre-open focusAppWindow result', focused);
-    } catch (error) {
-      console.warn('[folder-dialog] pre-open focusAppWindow failed', error);
-    }
-    window.setTimeout(() => setDialogState(nextDialog), 0);
+    setPendingFolderDialog(nextDialog);
   }, [contextMenu, logFolderDialogSignal]);
+
+  useEffect(() => {
+    if (!pendingFolderDialog) return;
+    let cancelled = false;
+    let attempts = 0;
+
+    const openWhenDocumentFocused = () => {
+      if (cancelled) return;
+      attempts += 1;
+
+      logFolderDialogSignal('pendingFolderDialog:check-document-focus', {
+        attempts,
+        pendingFolderDialog,
+        documentHasFocus: document.hasFocus(),
+        activeElement: document.activeElement,
+      });
+
+      if (document.hasFocus() || attempts >= 10) {
+        if (!document.hasFocus()) {
+          console.warn('[folder-dialog][warn] opening dialog while document.hasFocus() is still false', {
+            attempts,
+            pendingFolderDialog,
+            activeElement: document.activeElement,
+          });
+        }
+        setDialogState(pendingFolderDialog);
+        setPendingFolderDialog(null);
+        return;
+      }
+
+      window.setTimeout(openWhenDocumentFocused, 50);
+    };
+
+    window.setTimeout(openWhenDocumentFocused, 50);
+    return () => {
+      cancelled = true;
+    };
+  }, [pendingFolderDialog, logFolderDialogSignal]);
 
   const submitFolderDialog = useCallback(async () => {
     if (!dialogState || (dialogState.type !== 'rename' && dialogState.type !== 'create')) return;
@@ -1719,7 +1752,7 @@ export default function App() {
     if (success) setDialogState(null);
   }, [dialogState, executeCreateChildFolder, executeRenameFolder, folderDialogInput, showToast, t]);
 
-  const focusFolderDialogInput = useCallback(async () => {
+  const focusFolderDialogInput = useCallback(() => {
     const now = performance.now();
     const elapsed = now - lastFolderDialogFocusAtRef.current;
     logFolderDialogSignal('focusFolderDialogInput:start', { elapsed });
@@ -1736,49 +1769,36 @@ export default function App() {
       folderDialogFocusCountRef.current = 1;
     }
     lastFolderDialogFocusAtRef.current = now;
-
-    try {
-      const focused = await window.electronAPI?.focusAppWindow?.();
-      console.log('[folder-dialog] focusAppWindow result', focused);
-    } catch (error) {
-      console.warn('[folder-dialog] focusAppWindow failed', error);
-    }
     window.requestAnimationFrame(() => {
-      window.setTimeout(() => {
-        const input = folderDialogInputRef.current;
-        if (!input) {
-          logFolderDialogSignal('focusFolderDialogInput:input-null');
-          console.warn('[folder-dialog][warn] input ref is null during focus');
-          return;
-        }
-        logFolderDialogSignal('focusFolderDialogInput:before-focus');
-        console.log('[folder-dialog] document.hasFocus()', document.hasFocus());
-        console.log('[folder-dialog] before input focus activeElement', document.activeElement);
-        input.focus({ preventScroll: true });
-        input.select();
-        logFolderDialogSignal('focusFolderDialogInput:after-focus-select');
-        if (!document.hasFocus()) {
-          console.warn('[folder-dialog][warn] document.hasFocus() is false after input focus/select', {
-            activeElement: document.activeElement,
-            input,
-          });
-        }
-        if (document.activeElement !== input) {
-          console.warn('[folder-dialog][warn] input is not activeElement after focus/select', {
-            activeElement: document.activeElement,
-            input,
-          });
-        }
-        if (input.selectionStart !== 0 || input.selectionEnd !== input.value.length) {
-          console.warn('[folder-dialog][warn] input is not fully selected after select()', {
-            value: input.value,
-            selectionStart: input.selectionStart,
-            selectionEnd: input.selectionEnd,
-          });
-        }
-        console.log('[folder-dialog] after input focus activeElement', document.activeElement);
-        console.log('[folder-dialog] selection range', input.selectionStart, input.selectionEnd);
-      }, 50);
+      const input = folderDialogInputRef.current;
+      if (!input) {
+        logFolderDialogSignal('focusFolderDialogInput:input-null');
+        console.warn('[folder-dialog][warn] input ref is null during focus');
+        return;
+      }
+      logFolderDialogSignal('focusFolderDialogInput:before-focus');
+      input.focus({ preventScroll: true });
+      input.select();
+      logFolderDialogSignal('focusFolderDialogInput:after-focus-select');
+      if (!document.hasFocus()) {
+        console.warn('[folder-dialog][warn] document.hasFocus() is false after input focus/select', {
+          activeElement: document.activeElement,
+          input,
+        });
+      }
+      if (document.activeElement !== input) {
+        console.warn('[folder-dialog][warn] input is not activeElement after focus/select', {
+          activeElement: document.activeElement,
+          input,
+        });
+      }
+      if (input.selectionStart !== 0 || input.selectionEnd !== input.value.length) {
+        console.warn('[folder-dialog][warn] input is not fully selected after select()', {
+          value: input.value,
+          selectionStart: input.selectionStart,
+          selectionEnd: input.selectionEnd,
+        });
+      }
     });
   }, [dialogState, logFolderDialogSignal]);
 
