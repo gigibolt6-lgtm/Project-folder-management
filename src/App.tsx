@@ -1697,6 +1697,55 @@ export default function App() {
     if (success) setDialogState(null);
   }, [dialogState, executeCreateChildFolder, executeRenameFolder, folderDialogInput, showToast, t]);
 
+  useEffect(() => {
+    if (!dialogState || (dialogState.type !== 'rename' && dialogState.type !== 'create')) return;
+    const timer = window.setTimeout(() => {
+      folderDialogInputRef.current?.focus();
+      if (dialogState.type === 'rename') {
+        folderDialogInputRef.current?.select();
+      }
+      console.log('[folder-dialog] focus input', document.activeElement);
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [dialogState?.type, dialogState?.folderId]);
+
+  const submitFolderDialog = useCallback(async () => {
+    if (!dialogState || (dialogState.type !== 'rename' && dialogState.type !== 'create')) return;
+    console.log('[folder-dialog] submit draft', folderDialogInput);
+    const nextName = folderDialogInput.trim();
+    if (!nextName) {
+      showToast(t('emptyFolderName'));
+      return;
+    }
+    console.log('[folder-dialog] execute', dialogState.type, dialogState.folderId, folderDialogInput);
+    const success = dialogState.type === 'rename'
+      ? await executeRenameFolder(dialogState.folderId, nextName)
+      : await executeCreateChildFolder(dialogState.folderId, nextName);
+    if (success) setDialogState(null);
+  }, [dialogState, executeCreateChildFolder, executeRenameFolder, folderDialogInput, showToast, t]);
+
+  useEffect(() => {
+    if (!dialogState) return;
+    console.log('[folder-dialog] open', dialogState);
+  }, [dialogState]);
+
+  useEffect(() => {
+    if (!dialogState) {
+      setFolderDialogInput('');
+      return;
+    }
+    if (dialogState.type === 'rename') {
+      setFolderDialogInput(dialogState.value ?? '');
+      return;
+    }
+    if (dialogState.type === 'create') {
+      setFolderDialogInput('');
+      return;
+    }
+    setFolderDialogInput('');
+  }, [dialogState?.type, dialogState?.folderId]);
+
+  
   return (
     <div className="flex flex-col h-screen bg-[#F3F4F6] text-[#1F2937] overflow-hidden font-sans">
       {/* --- Top Header --- */}
