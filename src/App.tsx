@@ -1696,15 +1696,8 @@ const focusFolderDialogInput = useCallback(async () => {
 useLayoutEffect(() => {
   if (!dialogState || (dialogState.type !== 'rename' && dialogState.type !== 'create')) return;
 
-  focusFolderDialogInput();
+  void focusFolderDialogInput();
 }, [dialogState?.type, dialogState?.folderId, focusFolderDialogInput]);
-
-      const input = folderDialogInputRef.current;
-      if (!input) return;
-      input.focus({ preventScroll: true });
-      input.select();
-    });
-  }, []);
 
   useLayoutEffect(() => {
     if (!dialogState || (dialogState.type !== 'rename' && dialogState.type !== 'create')) return;
