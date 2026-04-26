@@ -1976,9 +1976,9 @@ export default function App() {
               animate={{ x: 0 }}
               exit={{ x: '100%' }}
               transition={{ type: "spring", damping: 30, stiffness: 300 }}
-              className="fixed top-0 right-0 h-full w-[800px] bg-white shadow-2xl z-[70] flex"
+              className="fixed top-0 right-0 h-full w-[860px] max-w-[calc(100vw-32px)] bg-white shadow-2xl z-[70] flex overflow-hidden"
             >
-              <div className="w-[240px] bg-gray-50 border-r border-gray-100 flex flex-col p-6 space-y-2">
+              <div className="w-[240px] shrink-0 bg-gray-50 border-r border-gray-100 flex flex-col p-6 space-y-2 overflow-y-auto">
                 <div className="text-sm font-bold text-gray-800 mb-6 flex items-center gap-2">
                   <Settings size={18} className="text-blue-600" />
                   {t('settings')}
@@ -1994,19 +1994,19 @@ export default function App() {
                     key={cat.id}
                     onClick={() => setSettingsCategory(cat.id as any)}
                     className={cn(
-                      "flex items-center gap-3 px-4 py-3 rounded-xl font-bold text-xs text-left transition-all",
+                      "flex items-center gap-3 px-4 py-3 rounded-xl font-bold text-xs text-left transition-all min-w-0",
                       settingsCategory === cat.id 
                         ? "bg-white text-blue-600 shadow-sm border border-blue-100" 
                         : "text-gray-600 hover:bg-gray-100 border border-transparent"
                     )}
                   >
-                    <cat.icon size={14} />
-                    {cat.label}
+                    <cat.icon size={14} className="shrink-0" />
+                    <span className="truncate whitespace-nowrap">{cat.label}</span>
                   </button>
                 ))}
               </div>
 
-              <div className="flex-1 flex flex-col">
+              <div className="flex-1 min-w-0 flex flex-col overflow-hidden">
                 <div className="p-6 border-b border-gray-100 flex items-center justify-between">
                   <h3 className="font-bold text-gray-800">
                     {settingsCategory === 'root' && t('rootSettings')}
@@ -2023,16 +2023,16 @@ export default function App() {
                   </button>
                 </div>
                 
-                <div className="p-8 space-y-8 flex-1 overflow-y-auto">
+                <div className="p-8 space-y-8 flex-1 overflow-y-auto overflow-x-hidden">
                    {/* Root Folder Category */}
                     {settingsCategory === 'root' && (
                      <div className="space-y-4">
-                       <div className="flex items-center justify-between">
+                       <div className="flex items-center justify-between gap-3 flex-wrap">
                           <label className="text-[11px] font-bold text-gray-400 uppercase tracking-wider">{t('regRoots')}</label>
-                          <div className="flex gap-2">
+                          <div className="flex items-center gap-2 min-w-0">
                             <button 
                               onClick={handleSelectLocalFolder}
-                              className="text-xs font-bold text-blue-600 bg-blue-50 px-3 py-1.5 rounded-lg hover:bg-blue-100 flex items-center gap-1.5 transition-colors"
+                              className="text-xs font-bold text-blue-600 bg-blue-50 px-3 py-1.5 rounded-lg hover:bg-blue-100 flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0"
                             >
                               <Folder size={14} />
                               {t('selectLocalFolder')}
@@ -2046,7 +2046,7 @@ export default function App() {
                                   setState(prev => ({ ...prev, sources: [...prev.sources, newSource] }));
                                 }
                               }}
-                              className="text-xs font-bold text-gray-500 hover:text-blue-600 hover:underline flex items-center gap-1 transition-colors"
+                              className="text-xs font-bold text-gray-500 hover:text-blue-600 hover:underline flex items-center gap-1 transition-colors whitespace-nowrap shrink-0"
                             >
                               <Plus size={14} />
                               {t('virtualRoot')}
