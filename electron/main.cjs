@@ -158,17 +158,14 @@ ipcMain.handle('folder:selectAndScan', async () => {
     if (!selectedPath || !fs.existsSync(selectedPath)) {
       return { ok: false, message: 'フォルダが存在しません' };
     }
-
     const normalizedSelectedPath = normalizePath(selectedPath);
     console.log('[folder:selectAndScan] selected:', normalizedSelectedPath);
+
     const folder = scanDirectoryTree(normalizedSelectedPath);
     registeredRoots.add(normalizedSelectedPath);
+
     return { ok: true, folder };
-  } catch (error) {
-    return {
-      ok: false,
-      message: error instanceof Error ? error.message : String(error),
-    };
+
   }
 });
 
