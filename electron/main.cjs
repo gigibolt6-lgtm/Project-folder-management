@@ -155,9 +155,11 @@ ipcMain.handle('folder:selectAndScan', async () => {
     }
 
     const selectedPath = result.filePaths[0];
+
     if (!selectedPath || !fs.existsSync(selectedPath)) {
       return { ok: false, message: 'フォルダが存在しません' };
     }
+
     const normalizedSelectedPath = normalizePath(selectedPath);
     console.log('[folder:selectAndScan] selected:', normalizedSelectedPath);
 
@@ -165,7 +167,13 @@ ipcMain.handle('folder:selectAndScan', async () => {
     registeredRoots.add(normalizedSelectedPath);
 
     return { ok: true, folder };
+  } catch (error) {
+    console.error('[folder:selectAndScan]', error);
 
+    return {
+      ok: false,
+      message: error instanceof Error ? error.message : String(error),
+    };
   }
 });
 
