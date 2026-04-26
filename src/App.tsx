@@ -833,6 +833,7 @@ export default function App() {
   const [isFolderEditMode, setIsFolderEditMode] = useState(false);
   const [contextMenu, setContextMenu] = useState<ContextMenuState>(null);
   const [dialogState, setDialogState] = useState<FolderDialogState>(null);
+  const [folderDialogInput, setFolderDialogInput] = useState('');
   const [draggingNodeId, setDraggingNodeId] = useState<string | null>(null);
   const [dragOverNodeId, setDragOverNodeId] = useState<string | null>(null);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
@@ -1632,6 +1633,37 @@ export default function App() {
     console.log('[folder-dialog] open', dialogState);
   }, [dialogState]);
 
+  useEffect(() => {
+    if (!dialogState) {
+      setFolderDialogInput('');
+      return;
+    }
+    if (dialogState.type === 'rename') {
+      setFolderDialogInput(dialogState.value ?? '');
+      return;
+    }
+    if (dialogState.type === 'create') {
+      setFolderDialogInput('');
+      return;
+    }
+    setFolderDialogInput('');
+  }, [dialogState?.type, dialogState?.folderId]);
+
+  const submitFolderDialog = useCallback(async () => {
+    if (!dialogState || (dialogState.type !== 'rename' && dialogState.type !== 'create')) return;
+    console.log('[folder-dialog] submit draft', folderDialogInput);
+    const nextName = folderDialogInput.trim();
+    if (!nextName) {
+      showToast(t('emptyFolderName'));
+      return;
+    }
+    console.log('[folder-dialog] execute', dialogState.type, dialogState.folderId, folderDialogInput);
+    const success = dialogState.type === 'rename'
+      ? await executeRenameFolder(dialogState.folderId, nextName)
+      : await executeCreateChildFolder(dialogState.folderId, nextName);
+    if (success) setDialogState(null);
+  }, [dialogState, executeCreateChildFolder, executeRenameFolder, folderDialogInput, showToast, t]);
+
   return (
     <div className="flex flex-col h-screen bg-[#F3F4F6] text-[#1F2937] overflow-hidden font-sans">
       {/* --- Top Header --- */}
@@ -2038,13 +2070,8 @@ export default function App() {
     )}
 
     {dialogState && (
-      <div
-        className="fixed inset-0 z-[10000] flex items-center justify-center"
-        onClick={() => setDialogState(null)}
-        onMouseDown={(event) => event.stopPropagation()}
-        onPointerDown={(event) => event.stopPropagation()}
-      >
-        <div className="absolute inset-0 z-0 bg-black/30" />
+      <div className="fixed inset-0 z-[10000] flex items-center justify-center">
+        <div className="absolute inset-0 z-0 bg-black/30" onClick={() => setDialogState(null)} />
         <div
           className="relative z-10 w-[420px] space-y-4 rounded-2xl border border-gray-100 bg-white p-6 shadow-2xl pointer-events-auto"
           onClick={(event) => event.stopPropagation()}
@@ -2058,34 +2085,27 @@ export default function App() {
               <input
                 autoFocus
                 className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm outline-none focus:border-blue-400"
-                value={dialogState.value}
+                value={folderDialogInput}
                 onChange={(event) => {
-                  const nextValue = event.target.value;
-                  console.log('[folder-dialog] input change', nextValue);
-                  setDialogState(prev => {
-                    if (!prev || (prev.type !== 'rename' && prev.type !== 'create')) return prev;
-                    return { ...prev, value: nextValue };
-                  });
+                  console.log('[folder-dialog] draft change', event.target.value);
+                  setFolderDialogInput(event.target.value);
                 }}
                 onClick={(event) => event.stopPropagation()}
                 onMouseDown={(event) => event.stopPropagation()}
-                onKeyDown={async (event) => {
+                onPointerDown={(event) => event.stopPropagation()}
+                onKeyDown={(event) => {
                   event.stopPropagation();
+                  const nativeEvent = event.nativeEvent as KeyboardEvent;
+                  const isComposing = nativeEvent.isComposing || event.key === 'Process';
+                  if (isComposing) return;
                   if (event.key === 'Escape') {
                     event.preventDefault();
                     setDialogState(null);
                     return;
                   }
-                  if (event.key !== 'Enter' || event.nativeEvent.isComposing) return;
+                  if (event.key !== 'Enter') return;
                   event.preventDefault();
-                  const nextValue = dialogState.value.trim();
-                  if (!nextValue) {
-                    showToast(t('emptyFolderName'));
-                    return;
-                  }
-                  console.log('[folder-dialog] submit', dialogState);
-                  const success = await executeRenameFolder(dialogState.folderId, nextValue);
-                  if (success) setDialogState(null);
+                  void submitFolderDialog();
                 }}
               />
               <div className="flex justify-end gap-2">
@@ -2093,14 +2113,7 @@ export default function App() {
                 <button
                   className="px-3 py-1.5 text-sm font-semibold text-white bg-blue-600 rounded-lg"
                   onClick={async () => {
-                    const nextValue = dialogState.value.trim();
-                    if (!nextValue) {
-                      showToast(t('emptyFolderName'));
-                      return;
-                    }
-                    console.log('[folder-dialog] submit', dialogState);
-                    const success = await executeRenameFolder(dialogState.folderId, nextValue);
-                    if (success) setDialogState(null);
+                    await submitFolderDialog();
                   }}
                 >
                   {t('rename')}
@@ -2116,34 +2129,27 @@ export default function App() {
               <input
                 autoFocus
                 className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm outline-none focus:border-blue-400"
-                value={dialogState.value}
+                value={folderDialogInput}
                 onChange={(event) => {
-                  const nextValue = event.target.value;
-                  console.log('[folder-dialog] input change', nextValue);
-                  setDialogState(prev => {
-                    if (!prev || (prev.type !== 'rename' && prev.type !== 'create')) return prev;
-                    return { ...prev, value: nextValue };
-                  });
+                  console.log('[folder-dialog] draft change', event.target.value);
+                  setFolderDialogInput(event.target.value);
                 }}
                 onClick={(event) => event.stopPropagation()}
                 onMouseDown={(event) => event.stopPropagation()}
-                onKeyDown={async (event) => {
+                onPointerDown={(event) => event.stopPropagation()}
+                onKeyDown={(event) => {
                   event.stopPropagation();
+                  const nativeEvent = event.nativeEvent as KeyboardEvent;
+                  const isComposing = nativeEvent.isComposing || event.key === 'Process';
+                  if (isComposing) return;
                   if (event.key === 'Escape') {
                     event.preventDefault();
                     setDialogState(null);
                     return;
                   }
-                  if (event.key !== 'Enter' || event.nativeEvent.isComposing) return;
+                  if (event.key !== 'Enter') return;
                   event.preventDefault();
-                  const nextValue = dialogState.value.trim();
-                  if (!nextValue) {
-                    showToast(t('emptyFolderName'));
-                    return;
-                  }
-                  console.log('[folder-dialog] submit', dialogState);
-                  const success = await executeCreateChildFolder(dialogState.folderId, nextValue);
-                  if (success) setDialogState(null);
+                  void submitFolderDialog();
                 }}
               />
               <div className="flex justify-end gap-2">
@@ -2151,14 +2157,7 @@ export default function App() {
                 <button
                   className="px-3 py-1.5 text-sm font-semibold text-white bg-blue-600 rounded-lg"
                   onClick={async () => {
-                    const nextValue = dialogState.value.trim();
-                    if (!nextValue) {
-                      showToast(t('emptyFolderName'));
-                      return;
-                    }
-                    console.log('[folder-dialog] submit', dialogState);
-                    const success = await executeCreateChildFolder(dialogState.folderId, nextValue);
-                    if (success) setDialogState(null);
+                    await submitFolderDialog();
                   }}
                 >
                   {t('create')}
