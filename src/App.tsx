@@ -329,6 +329,10 @@ const TRANSLATIONS: Record<string, Record<string, string>> = {
     connectionTo: '接続先',
     online: 'オンライン',
     totalFolders: '総フォルダ数',
+    statusSelected: '選択中',
+    statusDescendants: '選択以下',
+    statusMode: 'モード',
+    statusNone: 'なし',
     browserNotSupported: 'お使いのブラウザはローカルフォルダの選択に対応していないか、セキュリティ動作が制限されています。Chrome/Edgeの最新版をご利用ください。',
     iframeRestriction: 'セキュリティ上の理由により、プレビュー画面（iframe）内ではローカルフォルダを選択できません。\n\n右上の「新規タブで開く」ボタンからアプリを別画面で開いてお試しください。',
     folderScanComplete: 'フォルダ「{name}」のスキャンが完了しました。',
@@ -416,6 +420,10 @@ const TRANSLATIONS: Record<string, Record<string, string>> = {
     connectionTo: 'Connected to',
     online: 'Online',
     totalFolders: 'Total folders',
+    statusSelected: 'Selected',
+    statusDescendants: 'Under selected',
+    statusMode: 'Mode',
+    statusNone: 'None',
     browserNotSupported: 'Your browser does not support local folder selection or security policies are restricting it. Please use the latest Chrome/Edge.',
     iframeRestriction: 'For security reasons, local folders cannot be selected in the preview (iframe).\n\nPlease open the app in a separate tab using the top-right button and try again.',
     folderScanComplete: 'Finished scanning folder "{name}".',
@@ -980,6 +988,28 @@ export default function App() {
   const selectedFolder = useMemo(() => 
     flatData.find(f => f.id === state.selectedFolderId)
   , [flatData, state.selectedFolderId]);
+
+  const totalFolderCount = useMemo(() => {
+    const countNodes = (node: FolderNode): number =>
+      1 + (node.children?.reduce((sum, child) => sum + countNodes(child), 0) ?? 0);
+    return state.items.reduce((sum, root) => sum + countNodes(root), 0);
+  }, [state.items]);
+
+  const selectedSubtreeCount = useMemo(() => {
+    if (!selectedFolder) return null;
+    const countNodes = (node: FolderNode): number =>
+      1 + (node.children?.reduce((sum, child) => sum + countNodes(child), 0) ?? 0);
+    return countNodes(selectedFolder);
+  }, [selectedFolder]);
+
+  const currentModeLabel = useMemo(() => {
+    if (isFolderEditMode) {
+      return t('folderEditModeTitle');
+    }
+    const tagMode = state.tagMode === 'search' ? 'search' : 'assign';
+    const detailLabel = tagMode === 'search' ? t('tagSearch') : t('assign');
+    return `${t('tags')} / ${detailLabel}`;
+  }, [isFolderEditMode, state.tagMode, t]);
 
   const showToast = useCallback((message: string) => {
     setToastMessage(message);
@@ -1709,11 +1739,22 @@ export default function App() {
     </main>
 
     {/* --- Bottom Status Bar --- */}
-    <footer className="h-8 bg-gray-50 border-t border-gray-200 flex items-center px-4 justify-between shrink-0 z-50">
-      <div className="flex items-center gap-4">
-        <span className="text-[10px] text-gray-500 font-medium">
-          {t('totalFolders')}: {flatData.length.toLocaleString()}
+    <footer className="h-8 bg-gray-50 border-t border-gray-200 flex items-center px-4 shrink-0 z-50">
+      <div className="flex items-center gap-2 min-w-0 text-[10px] text-gray-500 font-medium">
+        <span className="shrink-0">
+          {t('totalFolders')}: {totalFolderCount.toLocaleString()}
         </span>
+        <span className="text-gray-300">|</span>
+        <span className="shrink-0">{t('statusSelected')}:</span>
+        <span className="min-w-0 max-w-40 truncate" title={selectedFolder?.name ?? t('statusNone')}>
+          {selectedFolder?.name ?? t('statusNone')}
+        </span>
+        <span className="text-gray-300">|</span>
+        <span className="shrink-0">
+          {t('statusDescendants')}: {selectedSubtreeCount?.toLocaleString() ?? '-'}
+        </span>
+        <span className="text-gray-300">|</span>
+        <span className="shrink-0">{t('statusMode')}: {currentModeLabel}</span>
       </div>
     </footer>
 
