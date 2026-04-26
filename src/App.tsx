@@ -1654,7 +1654,7 @@ export default function App() {
     setFolderDialogInput('');
   }, [dialogState?.type, dialogState?.folderId]);
 
-  const openFolderDialog = useCallback(async (nextDialog: FolderDialogState) => {
+  const openFolderDialog = useCallback((nextDialog: FolderDialogState) => {
     console.log('[folder-dialog] open requested', nextDialog);
     console.log('[folder-dialog] activeElement before open', document.activeElement);
     setContextMenu(null);
