@@ -12,11 +12,19 @@ function createWindow() {
     height: 900,
     minWidth: 1024,
     minHeight: 720,
+    show: false,
+    focusable: true,
     webPreferences: {
       preload: path.join(__dirname, 'preload.cjs'),
       contextIsolation: true,
       nodeIntegration: false,
     },
+  });
+
+  mainWindow.once('ready-to-show', () => {
+    mainWindow.show();
+    mainWindow.focus();
+    mainWindow.webContents.focus();
   });
 
   if (isDev) {
@@ -26,6 +34,18 @@ function createWindow() {
     mainWindow.loadFile(path.join(app.getAppPath(), 'dist', 'index.html'));
   }
 }
+
+ipcMain.handle('app:focus-window', () => {
+  const win = BrowserWindow.getFocusedWindow() || BrowserWindow.getAllWindows()[0];
+  if (!win) return false;
+
+  if (win.isMinimized()) win.restore();
+  win.show();
+  win.focus();
+  win.webContents.focus();
+
+  return true;
+});
 
 ipcMain.handle('folder:open', async (_event, folderPath) => {
   try {

@@ -11,3 +11,7 @@ contextBridge.exposeInMainWorld('folderApi', {
     ipcRenderer.invoke('folder:move', { sourcePath, destinationParentPath }),
   scanFolderPath: (targetPath) => ipcRenderer.invoke('folder:scanPath', { targetPath }),
 });
+
+contextBridge.exposeInMainWorld('electronAPI', {
+  focusAppWindow: () => ipcRenderer.invoke('app:focus-window'),
+});
