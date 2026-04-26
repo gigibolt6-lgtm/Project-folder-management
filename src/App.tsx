@@ -25,7 +25,7 @@ import {
 } from 'lucide-react';
 import { hierarchy, tree } from 'd3-hierarchy';
 import { cn } from './lib/utils';
-import { Tag, FolderNode, AppState, TagMode, FolderMetadata } from './types';
+import { Tag, FolderNode, AppState, TagMode, FolderMetadata, AppTheme } from './types';
 import { INITIAL_TAGS, INITIAL_SOURCES, MOCK_FOLDER_DATA } from './constants';
 
 // --- Icons Mapping ---
@@ -36,6 +36,18 @@ const ICON_MAP: Record<string, any> = {
   CheckCircle,
   Archive,
 };
+
+const NODE_FONT_FAMILY_MAP: Record<AppTheme['nodeFontFamily'], string> = {
+  system: 'system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
+  notoSansJp: '"Noto Sans JP", system-ui, sans-serif',
+  meiryo: 'Meiryo, system-ui, sans-serif',
+  yuGothic: '"Yu Gothic", "YuGothic", system-ui, sans-serif',
+  'sans-serif': 'sans-serif',
+  monospace: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace',
+};
+
+const getNodeFontFamily = (fontKey: AppTheme['nodeFontFamily']) =>
+  NODE_FONT_FAMILY_MAP[fontKey] ?? NODE_FONT_FAMILY_MAP.system;
 
 // --- Components ---
 
@@ -74,7 +86,7 @@ interface FolderNodeProps {
   onDragEnd: () => void;
   onNodeSizeChange: (id: string, size: { width: number; height: number }) => void;
   tags: Tag[];
-  theme: any;
+  theme: AppTheme;
 }
 
 const FolderNodeComponent: React.FC<FolderNodeProps> = ({ 
@@ -104,7 +116,11 @@ const FolderNodeComponent: React.FC<FolderNodeProps> = ({
   const nodeRef = useRef<HTMLDivElement | null>(null);
   const minContentWidth = 66; // tag 3個分の目安
   const maxContentWidth = 220; // tag 10個分の目安
-  const preferredContentWidth = Math.min(Math.max(data.name.length * 8 + 24, minContentWidth), maxContentWidth);
+  const estimatedCharWidth = Math.max(6, theme.nodeFontSize * 0.62);
+  const preferredContentWidth = Math.min(
+    Math.max(data.name.length * estimatedCharWidth + 24, minContentWidth),
+    maxContentWidth
+  );
 
   useLayoutEffect(() => {
     if (!nodeRef.current) return;
@@ -226,7 +242,17 @@ const FolderNodeComponent: React.FC<FolderNodeProps> = ({
         }}
       >
         <div className="flex items-center justify-between gap-2">
-          <div className="text-xs font-bold text-gray-900 break-words tracking-tight">{data.name}</div>
+          <div
+            className="font-bold break-words tracking-tight"
+            style={{
+              fontSize: `${theme.nodeFontSize}px`,
+              color: theme.nodeTextColor,
+              fontFamily: getNodeFontFamily(theme.nodeFontFamily),
+              lineHeight: 1.2,
+            }}
+          >
+            {data.name}
+          </div>
           {isEditMode && <GripVertical size={12} className="text-blue-400 shrink-0" />}
         </div>
         <div className="flex flex-wrap gap-0.5 mt-1">
@@ -329,6 +355,10 @@ const TRANSLATIONS: Record<string, Record<string, string>> = {
     connectionTo: '接続先',
     online: 'オンライン',
     totalFolders: '総フォルダ数',
+    statusSelected: '選択中',
+    statusDescendants: '選択以下',
+    statusMode: 'モード',
+    statusNone: 'なし',
     browserNotSupported: 'お使いのブラウザはローカルフォルダの選択に対応していないか、セキュリティ動作が制限されています。Chrome/Edgeの最新版をご利用ください。',
     iframeRestriction: 'セキュリティ上の理由により、プレビュー画面（iframe）内ではローカルフォルダを選択できません。\n\n右上の「新規タブで開く」ボタンからアプリを別画面で開いてお試しください。',
     folderScanComplete: 'フォルダ「{name}」のスキャンが完了しました。',
@@ -345,6 +375,23 @@ const TRANSLATIONS: Record<string, Record<string, string>> = {
     focusColorDesc: '選択・ハイライト時の強調色',
     lineColorLabel: '連結ラインの色味',
     lineColorDesc: 'フォルダ同士を繋ぐ線の色',
+    treeViewSettings: 'ツリー表示設定',
+    nodeHorizontalGapLabel: 'ノード横間隔',
+    nodeHorizontalGapDesc: '親子ノード間の左右の距離',
+    nodeVerticalGapLabel: 'ノード縦間隔',
+    nodeVerticalGapDesc: '同階層ノード同士の上下の距離',
+    nodeFontSizeLabel: 'フォントサイズ',
+    nodeFontSizeDesc: 'フォルダ名の文字サイズ',
+    nodeFontFamilyLabel: 'フォント',
+    nodeFontFamilyDesc: 'フォルダ名に使う書体',
+    nodeTextColorLabel: '文字色',
+    nodeTextColorDesc: 'フォルダ名の色',
+    fontSystem: 'システム標準',
+    fontNotoSansJp: 'Noto Sans JP',
+    fontMeiryo: 'Meiryo',
+    fontYuGothic: 'Yu Gothic',
+    fontSansSerif: 'sans-serif',
+    fontMonospace: 'monospace',
     folderEditModeSettings: 'フォルダ編集モード',
     folderEditModeTitle: 'フォルダ編集モード',
     folderEditModeDescription: 'ONにするとドラッグ移動・右クリック編集（名前変更/子作成/削除）が有効になります。',
@@ -416,6 +463,10 @@ const TRANSLATIONS: Record<string, Record<string, string>> = {
     connectionTo: 'Connected to',
     online: 'Online',
     totalFolders: 'Total folders',
+    statusSelected: 'Selected',
+    statusDescendants: 'Under selected',
+    statusMode: 'Mode',
+    statusNone: 'None',
     browserNotSupported: 'Your browser does not support local folder selection or security policies are restricting it. Please use the latest Chrome/Edge.',
     iframeRestriction: 'For security reasons, local folders cannot be selected in the preview (iframe).\n\nPlease open the app in a separate tab using the top-right button and try again.',
     folderScanComplete: 'Finished scanning folder "{name}".',
@@ -432,6 +483,23 @@ const TRANSLATIONS: Record<string, Record<string, string>> = {
     focusColorDesc: 'Accent color for selection/highlight',
     lineColorLabel: 'Connector line color',
     lineColorDesc: 'Color of lines connecting folders',
+    treeViewSettings: 'Tree View Settings',
+    nodeHorizontalGapLabel: 'Horizontal node gap',
+    nodeHorizontalGapDesc: 'Left-right distance between parent and child nodes',
+    nodeVerticalGapLabel: 'Vertical node gap',
+    nodeVerticalGapDesc: 'Top-bottom distance between sibling nodes',
+    nodeFontSizeLabel: 'Font size',
+    nodeFontSizeDesc: 'Folder name text size',
+    nodeFontFamilyLabel: 'Font',
+    nodeFontFamilyDesc: 'Typeface used for folder names',
+    nodeTextColorLabel: 'Text color',
+    nodeTextColorDesc: 'Folder name text color',
+    fontSystem: 'System default',
+    fontNotoSansJp: 'Noto Sans JP',
+    fontMeiryo: 'Meiryo',
+    fontYuGothic: 'Yu Gothic',
+    fontSansSerif: 'sans-serif',
+    fontMonospace: 'monospace',
     folderEditModeSettings: 'Folder Edit Mode',
     folderEditModeTitle: 'Folder Edit Mode',
     folderEditModeDescription: 'When ON, drag/move and context menu edits (rename/create child/delete) are enabled.',
@@ -718,6 +786,11 @@ export default function App() {
       folderColor: '#F59E0B',
       focusColor: '#2563EB',
       lineColor: '#BFDBFE',
+      nodeHorizontalGap: 220,
+      nodeVerticalGap: 110,
+      nodeFontSize: 14,
+      nodeFontFamily: 'system',
+      nodeTextColor: '#111827',
     }
   });
 
@@ -741,6 +814,24 @@ export default function App() {
   const [dragOverNodeId, setDragOverNodeId] = useState<string | null>(null);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [nodeSizeMap, setNodeSizeMap] = useState<Record<string, NodeSize>>({});
+  const THEME_STORAGE_KEY = 'project-folder-management-theme';
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const raw = window.localStorage.getItem(THEME_STORAGE_KEY);
+    if (!raw) return;
+    try {
+      const parsed = JSON.parse(raw) as Partial<AppTheme>;
+      setState(prev => ({ ...prev, theme: { ...prev.theme, ...parsed } }));
+    } catch (error) {
+      console.warn('Failed to parse stored theme settings', error);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    window.localStorage.setItem(THEME_STORAGE_KEY, JSON.stringify(state.theme));
+  }, [state.theme]);
 
   const createTag = useCallback((rawTagName: string) => {
     const name = rawTagName.trim();
@@ -981,6 +1072,28 @@ export default function App() {
     flatData.find(f => f.id === state.selectedFolderId)
   , [flatData, state.selectedFolderId]);
 
+  const totalFolderCount = useMemo(() => {
+    const countNodes = (node: FolderNode): number =>
+      1 + (node.children?.reduce((sum, child) => sum + countNodes(child), 0) ?? 0);
+    return state.items.reduce((sum, root) => sum + countNodes(root), 0);
+  }, [state.items]);
+
+  const selectedSubtreeCount = useMemo(() => {
+    if (!selectedFolder) return null;
+    const countNodes = (node: FolderNode): number =>
+      1 + (node.children?.reduce((sum, child) => sum + countNodes(child), 0) ?? 0);
+    return countNodes(selectedFolder);
+  }, [selectedFolder]);
+
+  const currentModeLabel = useMemo(() => {
+    if (isFolderEditMode) {
+      return t('folderEditModeTitle');
+    }
+    const tagMode = state.tagMode === 'search' ? 'search' : 'assign';
+    const detailLabel = tagMode === 'search' ? t('tagSearch') : t('assign');
+    return `${t('tags')} / ${detailLabel}`;
+  }, [isFolderEditMode, state.tagMode, t]);
+
   const showToast = useCallback((message: string) => {
     setToastMessage(message);
     window.setTimeout(() => setToastMessage(null), 2800);
@@ -1036,11 +1149,14 @@ export default function App() {
     
     // We want hierarchical layout going right
     const treeLayout = tree<FolderNode>()
-      .nodeSize([Math.max(96, maxNodeHeight + 24), Math.max(280, maxNodeWidth + 120)]) // [height padding, width spacing]
+      .nodeSize([
+        Math.max(state.theme.nodeVerticalGap, maxNodeHeight + 12),
+        Math.max(state.theme.nodeHorizontalGap, maxNodeWidth + 60)
+      ])
       .separation((a, b) => (a.parent === b.parent ? 1 : 1.2));
       
     return treeLayout(rootNode);
-  }, [state.items, state.expandedFolderIds, flatData, nodeSizeMap]);
+  }, [state.items, state.expandedFolderIds, flatData, nodeSizeMap, state.theme.nodeHorizontalGap, state.theme.nodeVerticalGap]);
 
   const highlightedFolderIds = useMemo(() => {
     if (state.tagMode === 'search' && state.activeTagFilters.size > 0) {
@@ -1701,13 +1817,6 @@ export default function App() {
                     </button>
                   );
                 })}
-                <button 
-                  onClick={() => setSettingsCategory('tags')}
-                  className="flex items-center gap-1 px-2.5 py-1.5 border border-dashed border-gray-200 text-gray-400 rounded-lg text-xs hover:border-blue-400 hover:text-blue-500 transition-colors"
-                >
-                  <Plus size={12} />
-                  {t('newTag')}
-                </button>
               </div>
             )}
           </section>
@@ -1716,12 +1825,22 @@ export default function App() {
     </main>
 
     {/* --- Bottom Status Bar --- */}
-    <footer className="h-8 bg-gray-50 border-t border-gray-200 flex items-center px-4 justify-between shrink-0 z-50">
-      <div className="flex items-center gap-4">
-        <span className="text-[10px] text-gray-500 font-medium">{t('connectionTo')}: 192.168.1.10 ({t('online')})</span>
-        <span className="text-[10px] text-gray-500 font-medium">
-          {t('totalFolders')}: {flatData.length.toLocaleString()}
+    <footer className="h-8 bg-gray-50 border-t border-gray-200 flex items-center px-4 shrink-0 z-50">
+      <div className="flex items-center gap-2 min-w-0 text-[10px] text-gray-500 font-medium">
+        <span className="shrink-0">
+          {t('totalFolders')}: {totalFolderCount.toLocaleString()}
         </span>
+        <span className="text-gray-300">|</span>
+        <span className="shrink-0">{t('statusSelected')}:</span>
+        <span className="min-w-0 max-w-40 truncate" title={selectedFolder?.name ?? t('statusNone')}>
+          {selectedFolder?.name ?? t('statusNone')}
+        </span>
+        <span className="text-gray-300">|</span>
+        <span className="shrink-0">
+          {t('statusDescendants')}: {selectedSubtreeCount?.toLocaleString() ?? '-'}
+        </span>
+        <span className="text-gray-300">|</span>
+        <span className="shrink-0">{t('statusMode')}: {currentModeLabel}</span>
       </div>
     </footer>
 
@@ -1857,9 +1976,9 @@ export default function App() {
               animate={{ x: 0 }}
               exit={{ x: '100%' }}
               transition={{ type: "spring", damping: 30, stiffness: 300 }}
-              className="fixed top-0 right-0 h-full w-[800px] bg-white shadow-2xl z-[70] flex"
+              className="fixed top-0 right-0 h-full w-[860px] max-w-[calc(100vw-32px)] bg-white shadow-2xl z-[70] flex overflow-hidden"
             >
-              <div className="w-[240px] bg-gray-50 border-r border-gray-100 flex flex-col p-6 space-y-2">
+              <div className="w-[240px] shrink-0 bg-gray-50 border-r border-gray-100 flex flex-col p-6 space-y-2 overflow-y-auto">
                 <div className="text-sm font-bold text-gray-800 mb-6 flex items-center gap-2">
                   <Settings size={18} className="text-blue-600" />
                   {t('settings')}
@@ -1875,19 +1994,19 @@ export default function App() {
                     key={cat.id}
                     onClick={() => setSettingsCategory(cat.id as any)}
                     className={cn(
-                      "flex items-center gap-3 px-4 py-3 rounded-xl font-bold text-xs text-left transition-all",
+                      "flex items-center gap-3 px-4 py-3 rounded-xl font-bold text-xs text-left transition-all min-w-0",
                       settingsCategory === cat.id 
                         ? "bg-white text-blue-600 shadow-sm border border-blue-100" 
                         : "text-gray-600 hover:bg-gray-100 border border-transparent"
                     )}
                   >
-                    <cat.icon size={14} />
-                    {cat.label}
+                    <cat.icon size={14} className="shrink-0" />
+                    <span className="truncate whitespace-nowrap">{cat.label}</span>
                   </button>
                 ))}
               </div>
 
-              <div className="flex-1 flex flex-col">
+              <div className="flex-1 min-w-0 flex flex-col overflow-hidden">
                 <div className="p-6 border-b border-gray-100 flex items-center justify-between">
                   <h3 className="font-bold text-gray-800">
                     {settingsCategory === 'root' && t('rootSettings')}
@@ -1904,16 +2023,16 @@ export default function App() {
                   </button>
                 </div>
                 
-                <div className="p-8 space-y-8 flex-1 overflow-y-auto">
+                <div className="p-8 space-y-8 flex-1 overflow-y-auto overflow-x-hidden">
                    {/* Root Folder Category */}
                     {settingsCategory === 'root' && (
                      <div className="space-y-4">
-                       <div className="flex items-center justify-between">
+                       <div className="flex items-center justify-between gap-3 flex-wrap">
                           <label className="text-[11px] font-bold text-gray-400 uppercase tracking-wider">{t('regRoots')}</label>
-                          <div className="flex gap-2">
+                          <div className="flex items-center gap-2 min-w-0">
                             <button 
                               onClick={handleSelectLocalFolder}
-                              className="text-xs font-bold text-blue-600 bg-blue-50 px-3 py-1.5 rounded-lg hover:bg-blue-100 flex items-center gap-1.5 transition-colors"
+                              className="text-xs font-bold text-blue-600 bg-blue-50 px-3 py-1.5 rounded-lg hover:bg-blue-100 flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0"
                             >
                               <Folder size={14} />
                               {t('selectLocalFolder')}
@@ -1927,7 +2046,7 @@ export default function App() {
                                   setState(prev => ({ ...prev, sources: [...prev.sources, newSource] }));
                                 }
                               }}
-                              className="text-xs font-bold text-gray-500 hover:text-blue-600 hover:underline flex items-center gap-1 transition-colors"
+                              className="text-xs font-bold text-gray-500 hover:text-blue-600 hover:underline flex items-center gap-1 transition-colors whitespace-nowrap shrink-0"
                             >
                               <Plus size={14} />
                               {t('virtualRoot')}
@@ -1936,13 +2055,13 @@ export default function App() {
                        </div>
                        <div className="space-y-2">
                           {state.sources.map(src => (
-                            <div key={src.id} className="flex items-center gap-3 p-3 bg-gray-50/50 rounded-xl border border-gray-100 group">
-                              <Folder size={18} className="text-amber-500" />
-                              <div className="flex-1 min-w-0">
-                                <div className="text-sm font-bold text-gray-700">{src.name}</div>
-                                <div className="text-[10px] text-gray-400 font-mono truncate">{src.path}</div>
+                            <div key={src.id} className="flex items-center gap-3 min-w-0 p-3 bg-gray-50/50 rounded-xl border border-gray-100 group">
+                              <Folder size={18} className="text-amber-500 shrink-0" />
+                              <div className="flex-1 min-w-0 overflow-hidden">
+                                <div className="text-sm font-bold text-gray-700 truncate" title={src.name}>{src.name}</div>
+                                <div className="text-[10px] text-gray-400 font-mono truncate" title={src.path}>{src.path}</div>
                               </div>
-                              <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                              <div className="flex items-center gap-1 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
                                 <button className="p-1.5 hover:bg-white rounded-lg text-gray-400 hover:text-red-500 transition-colors">
                                   <Trash2 size={14} onClick={() => setState(prev => ({ ...prev, sources: prev.sources.filter(s => s.id !== src.id) }))} />
                                 </button>
@@ -2112,6 +2231,115 @@ export default function App() {
                    {/* Env Category */}
                    {settingsCategory === 'env' && (
                      <div className="space-y-6">
+                        <label className="text-[11px] font-bold text-gray-400 uppercase tracking-wider">{t('treeViewSettings')}</label>
+                        <div className="grid grid-cols-1 gap-4">
+                          <div className="p-4 bg-gray-50/50 border border-gray-100 rounded-2xl">
+                            <div className="flex items-center justify-between">
+                              <div>
+                                <div className="text-sm font-bold text-gray-700">{t('nodeHorizontalGapLabel')}</div>
+                                <div className="text-[10px] text-gray-400">{t('nodeHorizontalGapDesc')}</div>
+                              </div>
+                              <div className="text-[10px] font-mono text-gray-500">{state.theme.nodeHorizontalGap}px</div>
+                            </div>
+                            <input
+                              type="range"
+                              min={120}
+                              max={360}
+                              step={5}
+                              value={state.theme.nodeHorizontalGap}
+                              onChange={(e) => {
+                                const value = Number(e.target.value);
+                                setState(prev => ({ ...prev, theme: { ...prev.theme, nodeHorizontalGap: value } }));
+                              }}
+                              className="w-full mt-3"
+                            />
+                          </div>
+
+                          <div className="p-4 bg-gray-50/50 border border-gray-100 rounded-2xl">
+                            <div className="flex items-center justify-between">
+                              <div>
+                                <div className="text-sm font-bold text-gray-700">{t('nodeVerticalGapLabel')}</div>
+                                <div className="text-[10px] text-gray-400">{t('nodeVerticalGapDesc')}</div>
+                              </div>
+                              <div className="text-[10px] font-mono text-gray-500">{state.theme.nodeVerticalGap}px</div>
+                            </div>
+                            <input
+                              type="range"
+                              min={70}
+                              max={180}
+                              step={5}
+                              value={state.theme.nodeVerticalGap}
+                              onChange={(e) => {
+                                const value = Number(e.target.value);
+                                setState(prev => ({ ...prev, theme: { ...prev.theme, nodeVerticalGap: value } }));
+                              }}
+                              className="w-full mt-3"
+                            />
+                          </div>
+
+                          <div className="p-4 bg-gray-50/50 border border-gray-100 rounded-2xl">
+                            <div className="flex items-center justify-between">
+                              <div>
+                                <div className="text-sm font-bold text-gray-700">{t('nodeFontSizeLabel')}</div>
+                                <div className="text-[10px] text-gray-400">{t('nodeFontSizeDesc')}</div>
+                              </div>
+                              <div className="text-[10px] font-mono text-gray-500">{state.theme.nodeFontSize}px</div>
+                            </div>
+                            <input
+                              type="range"
+                              min={11}
+                              max={18}
+                              step={1}
+                              value={state.theme.nodeFontSize}
+                              onChange={(e) => {
+                                const value = Number(e.target.value);
+                                setState(prev => ({ ...prev, theme: { ...prev.theme, nodeFontSize: value } }));
+                              }}
+                              className="w-full mt-3"
+                            />
+                          </div>
+
+                          <div className="p-4 bg-gray-50/50 border border-gray-100 rounded-2xl">
+                            <div className="text-sm font-bold text-gray-700">{t('nodeFontFamilyLabel')}</div>
+                            <div className="text-[10px] text-gray-400 mb-3">{t('nodeFontFamilyDesc')}</div>
+                            <select
+                              value={state.theme.nodeFontFamily}
+                              onChange={(e) => {
+                                setState(prev => ({
+                                  ...prev,
+                                  theme: { ...prev.theme, nodeFontFamily: e.target.value as AppTheme['nodeFontFamily'] }
+                                }));
+                              }}
+                              className="w-full text-xs border border-gray-200 rounded p-2 bg-white"
+                            >
+                              <option value="system">{t('fontSystem')}</option>
+                              <option value="notoSansJp">{t('fontNotoSansJp')}</option>
+                              <option value="meiryo">{t('fontMeiryo')}</option>
+                              <option value="yuGothic">{t('fontYuGothic')}</option>
+                              <option value="sans-serif">{t('fontSansSerif')}</option>
+                              <option value="monospace">{t('fontMonospace')}</option>
+                            </select>
+                          </div>
+
+                          <div className="p-4 bg-gray-50/50 border border-gray-100 rounded-2xl flex items-center justify-between">
+                            <div>
+                              <div className="text-sm font-bold text-gray-700">{t('nodeTextColorLabel')}</div>
+                              <div className="text-[10px] text-gray-400">{t('nodeTextColorDesc')}</div>
+                            </div>
+                            <div className="flex items-center gap-4">
+                              <div className="text-[10px] font-mono text-gray-400 uppercase">{state.theme.nodeTextColor}</div>
+                              <input
+                                type="color"
+                                value={state.theme.nodeTextColor}
+                                onChange={(e) => {
+                                  setState(prev => ({ ...prev, theme: { ...prev.theme, nodeTextColor: e.target.value } }));
+                                }}
+                                className="w-10 h-10 rounded-xl overflow-hidden border-none cursor-pointer shadow-sm shadow-blue-500/10"
+                              />
+                            </div>
+                          </div>
+                        </div>
+
                         <label className="text-[11px] font-bold text-gray-400 uppercase tracking-wider">{t('colorEdit')}</label>
                         
                         <div className="grid grid-cols-1 gap-6">

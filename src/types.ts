@@ -40,6 +40,11 @@ export interface AppTheme {
   folderColor: string;
   focusColor: string;
   lineColor: string;
+  nodeHorizontalGap: number;
+  nodeVerticalGap: number;
+  nodeFontSize: number;
+  nodeFontFamily: 'system' | 'notoSansJp' | 'meiryo' | 'yuGothic' | 'sans-serif' | 'monospace';
+  nodeTextColor: string;
 }
 
 export interface AppState {
