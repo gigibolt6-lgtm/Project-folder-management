@@ -1,7 +1,6 @@
 const { app, BrowserWindow, ipcMain, shell, dialog } = require('electron');
 const path = require('path');
 const fs = require('fs');
-const crypto = require('crypto');
 
 const isDev = !app.isPackaged;
 const registeredRoots = new Set();
@@ -57,6 +56,10 @@ ipcMain.handle('folder:open', async (_event, folderPath) => {
 const MAX_SCAN_DEPTH = 8;
 
 const normalizePath = (targetPath) => path.resolve(String(targetPath || '').trim());
+const toStableNodeId = (absolutePath) => {
+  const normalized = normalizePath(absolutePath);
+  return process.platform === 'win32' ? normalized.toLowerCase() : normalized;
+};
 
 const hasInvalidFolderName = (name) => INVALID_FOLDER_NAME_CHARS.test(name);
 
@@ -108,10 +111,11 @@ const ensurePathExists = async (targetPath) => {
 };
 
 function scanDirectoryTree(absolutePath, depth = 0) {
+  const normalizedAbsolutePath = normalizePath(absolutePath);
   const node = {
-    id: crypto.randomUUID(),
-    name: path.basename(absolutePath),
-    path: absolutePath,
+    id: toStableNodeId(normalizedAbsolutePath),
+    name: path.basename(normalizedAbsolutePath),
+    path: normalizedAbsolutePath,
     tags: [],
     metadata: { description: '', department: '', owner: '', remark: '' },
     children: [],
@@ -121,14 +125,14 @@ function scanDirectoryTree(absolutePath, depth = 0) {
 
   let entries = [];
   try {
-    entries = fs.readdirSync(absolutePath, { withFileTypes: true });
+    entries = fs.readdirSync(normalizedAbsolutePath, { withFileTypes: true });
   } catch (_error) {
     return node;
   }
 
   for (const entry of entries) {
     if (!entry.isDirectory()) continue;
-    const childPath = path.join(absolutePath, entry.name);
+    const childPath = path.join(normalizedAbsolutePath, entry.name);
     try {
       node.children.push(scanDirectoryTree(childPath, depth + 1));
     } catch (_error) {
@@ -154,26 +158,49 @@ ipcMain.handle('folder:selectAndScan', async () => {
     if (!selectedPath || !fs.existsSync(selectedPath)) {
       return { ok: false, message: 'フォルダが存在しません' };
     }
+    const normalizedSelectedPath = normalizePath(selectedPath);
+    console.log('[folder:selectAndScan] selected:', normalizedSelectedPath);
 
-    const folder = scanDirectoryTree(selectedPath);
-    registeredRoots.add(normalizePath(selectedPath));
+    const folder = scanDirectoryTree(normalizedSelectedPath);
+    registeredRoots.add(normalizedSelectedPath);
+
     return { ok: true, folder };
+
+  }
+});
+
+ipcMain.handle('folder:registerRoot', async (_event, payload) => {
+  try {
+    const rootPath = normalizePath(payload?.rootPath);
+    console.log('[folder:registerRoot] input:', payload);
+    if (!rootPath) {
+      console.warn('[folder:registerRoot] invalid path');
+      return { ok: false, message: 'ルートパスが不正です' };
+    }
+    const exists = await ensurePathExists(rootPath);
+    if (!exists.ok) {
+      console.warn('[folder:registerRoot] path check failed:', rootPath, exists.message);
+      return exists;
+    }
+    registeredRoots.add(rootPath);
+    return { ok: true, rootPath };
   } catch (error) {
-    return {
-      ok: false,
-      message: error instanceof Error ? error.message : String(error),
-    };
+    console.error('[folder:registerRoot]', error);
+    return { ok: false, message: 'ルート登録に失敗しました' };
   }
 });
 
 ipcMain.handle('folder:create', async (_event, payload) => {
   try {
+    console.log('[folder:create] input:', payload);
     const parentPath = normalizePath(payload?.parentPath);
     const folderNameResult = ensureValidFolderName(payload?.folderName);
     if (!parentPath || !folderNameResult.ok) {
+      console.warn('[folder:create] invalid input:', payload);
       return { ok: false, message: folderNameResult.message || 'パスが不正です' };
     }
     if (!isUnderRegisteredRoots(parentPath)) {
+      console.warn('[folder:create] outside registered roots:', parentPath);
       return { ok: false, message: '操作対象が許可されたルート外です' };
     }
     const parentExists = await ensurePathExists(parentPath);
@@ -181,6 +208,7 @@ ipcMain.handle('folder:create', async (_event, payload) => {
 
     const folderPath = path.resolve(parentPath, folderNameResult.value);
     if (fs.existsSync(folderPath)) {
+      console.warn('[folder:create] duplicate folder:', folderPath);
       return { ok: false, message: '同名フォルダが既に存在します' };
     }
 
@@ -194,15 +222,19 @@ ipcMain.handle('folder:create', async (_event, payload) => {
 
 ipcMain.handle('folder:rename', async (_event, payload) => {
   try {
+    console.log('[folder:rename] input:', payload);
     const targetPath = normalizePath(payload?.targetPath);
     const folderNameResult = ensureValidFolderName(payload?.newName);
     if (!targetPath || !folderNameResult.ok) {
+      console.warn('[folder:rename] invalid input:', payload);
       return { ok: false, message: folderNameResult.message || 'パスが不正です' };
     }
     if (!isUnderRegisteredRoots(targetPath)) {
+      console.warn('[folder:rename] outside registered roots:', targetPath);
       return { ok: false, message: '操作対象が許可されたルート外です' };
     }
     if (isRegisteredRootPath(targetPath)) {
+      console.warn('[folder:rename] blocked for root path:', targetPath);
       return { ok: false, message: 'ルートフォルダ名は変更できません' };
     }
     const exists = await ensurePathExists(targetPath);
@@ -210,9 +242,11 @@ ipcMain.handle('folder:rename', async (_event, payload) => {
 
     const newPath = path.resolve(path.dirname(targetPath), folderNameResult.value);
     if (newPath === targetPath) {
+      console.warn('[folder:rename] unchanged path:', targetPath);
       return { ok: false, message: '変更後の名前が同じです' };
     }
     if (fs.existsSync(newPath)) {
+      console.warn('[folder:rename] duplicate target:', newPath);
       return { ok: false, message: '同名フォルダが既に存在します' };
     }
     await fs.promises.rename(targetPath, newPath);
@@ -225,12 +259,18 @@ ipcMain.handle('folder:rename', async (_event, payload) => {
 
 ipcMain.handle('folder:delete', async (_event, payload) => {
   try {
+    console.log('[folder:delete] input:', payload);
     const targetPath = normalizePath(payload?.targetPath);
-    if (!targetPath) return { ok: false, message: 'パスが不正です' };
+    if (!targetPath) {
+      console.warn('[folder:delete] invalid input:', payload);
+      return { ok: false, message: 'パスが不正です' };
+    }
     if (!isUnderRegisteredRoots(targetPath)) {
+      console.warn('[folder:delete] outside registered roots:', targetPath);
       return { ok: false, message: '操作対象が許可されたルート外です' };
     }
     if (isRegisteredRootPath(targetPath)) {
+      console.warn('[folder:delete] blocked for root path:', targetPath);
       return { ok: false, message: 'ルートフォルダは削除できません' };
     }
     const exists = await ensurePathExists(targetPath);
@@ -246,13 +286,19 @@ ipcMain.handle('folder:delete', async (_event, payload) => {
 
 ipcMain.handle('folder:move', async (_event, payload) => {
   try {
+    console.log('[folder:move] input:', payload);
     const sourcePath = normalizePath(payload?.sourcePath);
     const destinationParentPath = normalizePath(payload?.destinationParentPath);
-    if (!sourcePath || !destinationParentPath) return { ok: false, message: 'パスが不正です' };
+    if (!sourcePath || !destinationParentPath) {
+      console.warn('[folder:move] invalid input:', payload);
+      return { ok: false, message: 'パスが不正です' };
+    }
     if (!isUnderRegisteredRoots(sourcePath) || !isUnderRegisteredRoots(destinationParentPath)) {
+      console.warn('[folder:move] outside registered roots:', sourcePath, destinationParentPath);
       return { ok: false, message: '操作対象が許可されたルート外です' };
     }
     if (isRegisteredRootPath(sourcePath)) {
+      console.warn('[folder:move] blocked for root path:', sourcePath);
       return { ok: false, message: 'ルートフォルダは移動できません' };
     }
     const sourceExists = await ensurePathExists(sourcePath);
@@ -261,11 +307,13 @@ ipcMain.handle('folder:move', async (_event, payload) => {
     if (!destinationExists.ok) return destinationExists;
 
     if (sourcePath === destinationParentPath || isSameOrChildPath(destinationParentPath, sourcePath)) {
+      console.warn('[folder:move] blocked self/descendant move:', sourcePath, destinationParentPath);
       return { ok: false, message: '自分自身または子フォルダ配下へは移動できません' };
     }
 
     const newPath = path.resolve(destinationParentPath, path.basename(sourcePath));
     if (fs.existsSync(newPath)) {
+      console.warn('[folder:move] duplicate destination:', newPath);
       return { ok: false, message: '移動先に同名フォルダが存在します' };
     }
     await fs.promises.rename(sourcePath, newPath);
@@ -278,13 +326,18 @@ ipcMain.handle('folder:move', async (_event, payload) => {
 
 ipcMain.handle('folder:scanPath', async (_event, payload) => {
   try {
+    console.log('[folder:scanPath] input:', payload);
     const targetPath = normalizePath(payload?.targetPath);
-    if (!targetPath) return { ok: false, message: 'パスが不正です' };
-    if (!isUnderRegisteredRoots(targetPath)) {
-      return { ok: false, message: '操作対象が許可されたルート外です' };
+    if (!targetPath) {
+      console.warn('[folder:scanPath] invalid input:', payload);
+      return { ok: false, message: 'パスが不正です' };
     }
     const exists = await ensurePathExists(targetPath);
     if (!exists.ok) return exists;
+    if (!isUnderRegisteredRoots(targetPath)) {
+      console.warn('[folder:scanPath] auto-register root:', targetPath);
+      registeredRoots.add(targetPath);
+    }
 
     const folder = scanDirectoryTree(targetPath);
     return { ok: true, folder };

@@ -79,6 +79,7 @@ interface FolderNodeProps {
   onToggleExpand: (id: string) => void;
   onOpenFolder: (folder: FolderNode) => void;
   onContextMenu: (event: React.MouseEvent, folder: FolderNode) => void;
+  onQuickMenuOpen: (event: React.MouseEvent, folder: FolderNode) => void;
   onDragStart: (id: string) => void;
   onDragEnter: (id: string) => void;
   onDragLeave: (id: string) => void;
@@ -101,6 +102,7 @@ const FolderNodeComponent: React.FC<FolderNodeProps> = ({
   onToggleExpand,
   onOpenFolder,
   onContextMenu,
+  onQuickMenuOpen,
   onDragStart,
   onDragEnter,
   onDragLeave,
@@ -160,7 +162,9 @@ const FolderNodeComponent: React.FC<FolderNodeProps> = ({
       onContextMenu={(e) => {
         e.preventDefault();
         e.stopPropagation();
-        onContextMenu(e, data);
+        if (isEditMode) {
+          onContextMenu(e, data);
+        }
       }}
       draggable={isEditMode}
       onDragStart={(e) => {
@@ -254,6 +258,25 @@ const FolderNodeComponent: React.FC<FolderNodeProps> = ({
             {data.name}
           </div>
           {isEditMode && <GripVertical size={12} className="text-blue-400 shrink-0" />}
+          {isEditMode && (
+            <button
+              type="button"
+              className="p-1 rounded hover:bg-blue-100 text-blue-500"
+              onMouseDown={(event) => {
+                event.preventDefault();
+                event.stopPropagation();
+              }}
+              onClick={(event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                onQuickMenuOpen(event, data);
+              }}
+              title="編集メニュー"
+              aria-label="編集メニュー"
+            >
+              <MoreVertical size={12} />
+            </button>
+          )}
         </div>
         <div className="flex flex-wrap gap-0.5 mt-1">
           {nodeTags.map(t => (
@@ -1003,6 +1026,24 @@ export default function App() {
     }
   };
 
+  useEffect(() => {
+    const registerRoots = async () => {
+      if (!window.folderApi?.registerRoot) return;
+      for (const root of state.items) {
+        try {
+          console.log('[folder-root] register start', root.path);
+          const result = await window.folderApi.registerRoot(root.path);
+          if (!result.ok) {
+            console.warn('[folder-root] register failed', root.path, result.message);
+          }
+        } catch (error) {
+          console.warn('[folder-root] register error', root.path, error);
+        }
+      }
+    };
+    void registerRoots();
+  }, [state.items]);
+
   // --- Derived Data ---
   const flatData = useMemo(() => {
     const list: FolderNode[] = [];
@@ -1047,21 +1088,50 @@ export default function App() {
   }, []);
 
   const getFolderById = useCallback((id: string) => flatData.find(f => f.id === id), [flatData]);
+  const normalizeClientPath = useCallback((value: string) => {
+    const trimmed = value.trim().replace(/\\/g, '/').replace(/\/+/g, '/');
+    if (!trimmed) return '';
+    const normalized = trimmed.endsWith('/') && trimmed.length > 1 ? trimmed.slice(0, -1) : trimmed;
+    return normalized.toLowerCase();
+  }, []);
+  const isSameOrChildPath = useCallback((candidatePath: string, rootPath: string) => {
+    const candidate = normalizeClientPath(candidatePath);
+    const root = normalizeClientPath(rootPath);
+    if (!candidate || !root) return false;
+    return candidate === root || candidate.startsWith(`${root}/`);
+  }, [normalizeClientPath]);
 
   const INVALID_FOLDER_CHARS = /[\\/:*?"<>|]/;
   const sanitizeFolderName = (value: string) => value.trim();
 
-  const getRootFolderById = useCallback((folderId: string) => {
-    let current = flatData.find(f => f.id === folderId);
-    while (current?.parentId) {
-      current = flatData.find(f => f.id === current?.parentId);
+  const findRootForPath = useCallback((targetPath: string): FolderNode | null => {
+    for (const root of state.items) {
+      if (isSameOrChildPath(targetPath, root.path)) {
+        return root;
+      }
     }
-    return current ?? null;
-  }, [flatData]);
+    return null;
+  }, [isSameOrChildPath, state.items]);
 
-  const replaceRootNodeInState = useCallback((nodes: FolderNode[], rootPath: string, nextRoot: FolderNode) =>
-    nodes.map(node => (node.path === rootPath ? nextRoot : node))
-  , []);
+  const findRootById = useCallback((folderId: string): FolderNode | null => {
+    const folder = getFolderById(folderId);
+    if (!folder) return null;
+    return findRootForPath(folder.path);
+  }, [findRootForPath, getFolderById]);
+
+  const replaceRootByPath = useCallback((items: FolderNode[], rootPath: string, newRoot: FolderNode | null | undefined) => {
+    if (!newRoot || !Array.isArray(newRoot.children)) return items;
+    const normalizedRootPath = normalizeClientPath(rootPath);
+    let replaced = false;
+    const nextItems = items.map(root => {
+      if (normalizeClientPath(root.path) === normalizedRootPath) {
+        replaced = true;
+        return newRoot;
+      }
+      return root;
+    });
+    return replaced ? nextItems : items;
+  }, [normalizeClientPath]);
 
   // --- Tree Layout Calculation ---
   const treeData = useMemo(() => {
@@ -1186,34 +1256,41 @@ export default function App() {
     }
 
     try {
+      console.log('[folder-edit] move start', source.path, target.path);
       if (!window.folderApi?.moveFolder || !window.folderApi?.scanFolderPath) {
         showToast(t('desktopOnlyFeature'));
         return;
       }
+      const sourceRoot = findRootForPath(source.path);
+      const destinationRoot = findRootForPath(target.path);
+      if (!sourceRoot || !destinationRoot) {
+        console.warn('[folder-edit] move root not found', source.path, target.path);
+        showToast(t('folderLoadError'));
+        return;
+      }
       const moveResult = await window.folderApi.moveFolder(source.path, target.path);
       if (!moveResult.ok) {
+        console.warn('[folder-edit] move failed', moveResult.message);
         showToast(moveResult.message || t('moveFailed'));
         return;
       }
 
-      const sourceRoot = getRootFolderById(sourceId);
-      if (!sourceRoot) return;
-      const scanResult = await window.folderApi.scanFolderPath(sourceRoot.path);
-      if (!scanResult.ok || !scanResult.folder) {
-        showToast(scanResult.message || t('folderLoadError'));
-        return;
+      const rootPaths = Array.from(new Set([sourceRoot.path, destinationRoot.path]));
+      for (const rootPath of rootPaths) {
+        console.log('[folder-edit] rescan root', rootPath);
+        const scanResult = await window.folderApi.scanFolderPath(rootPath);
+        if (!scanResult.ok || !scanResult.folder) {
+          console.warn('[folder-edit] move rescan failed', rootPath, scanResult.message);
+          showToast(scanResult.message || t('folderLoadError'));
+          return;
+        }
+        setState(prev => ({ ...prev, items: replaceRootByPath(prev.items, rootPath, scanResult.folder as FolderNode) }));
       }
-
-      setState(prev => ({
-        ...prev,
-        items: replaceRootNodeInState(prev.items, sourceRoot.path, scanResult.folder as FolderNode),
-        expandedFolderIds: new Set([...prev.expandedFolderIds, targetId]),
-      }));
     } catch (error) {
       console.error(error);
       showToast(t('moveFailed'));
     }
-  }, [getFolderById, getRootFolderById, isDescendant, isFolderEditMode, replaceRootNodeInState, showToast, t]);
+  }, [findRootForPath, getFolderById, isDescendant, isFolderEditMode, replaceRootByPath, showToast, t]);
 
   const executeRenameFolder = useCallback(async (folderId: string, rawName: string) => {
     if (!isFolderEditMode) return;
@@ -1225,30 +1302,38 @@ export default function App() {
     if (nextName === folder.name) return showToast(t('folderNameUnchanged'));
 
     try {
+      console.log('[folder-edit] rename start', folder.path, nextName);
       if (!window.folderApi?.renameFolder || !window.folderApi?.scanFolderPath) {
         showToast(t('desktopOnlyFeature'));
         return;
       }
+      const rootFolder = findRootForPath(folder.path);
+      if (!rootFolder) {
+        console.warn('[folder-edit] rename root not found', folder.path);
+        showToast(t('folderLoadError'));
+        return;
+      }
       const renameResult = await window.folderApi.renameFolder(folder.path, nextName);
       if (!renameResult.ok) {
+        console.warn('[folder-edit] rename failed', renameResult.message);
         showToast(renameResult.message || t('renameFailed'));
         return;
       }
 
-      const rootFolder = getRootFolderById(folderId);
-      if (!rootFolder) return;
+      console.log('[folder-edit] rescan root', rootFolder.path);
       const scanResult = await window.folderApi.scanFolderPath(rootFolder.path);
       if (!scanResult.ok || !scanResult.folder) {
+        console.warn('[folder-edit] rename rescan failed', rootFolder.path, scanResult.message);
         showToast(scanResult.message || t('folderLoadError'));
         return;
       }
 
-      setState(prev => ({ ...prev, items: replaceRootNodeInState(prev.items, rootFolder.path, scanResult.folder as FolderNode) }));
+      setState(prev => ({ ...prev, items: replaceRootByPath(prev.items, rootFolder.path, scanResult.folder as FolderNode) }));
     } catch (error) {
       console.error(error);
       showToast(t('renameFailed'));
     }
-  }, [getFolderById, getRootFolderById, isFolderEditMode, replaceRootNodeInState, showToast, t]);
+  }, [findRootForPath, getFolderById, isFolderEditMode, replaceRootByPath, showToast, t]);
 
   const executeCreateChildFolder = useCallback(async (folderId: string, rawName: string) => {
     if (!isFolderEditMode) return;
@@ -1259,68 +1344,88 @@ export default function App() {
     if (INVALID_FOLDER_CHARS.test(nextName)) return showToast(t('invalidFolderName'));
 
     try {
+      console.log('[folder-edit] create start', folder.path, nextName);
       if (!window.folderApi?.createFolder || !window.folderApi?.scanFolderPath) {
         showToast(t('desktopOnlyFeature'));
         return;
       }
+      const rootFolder = findRootForPath(folder.path);
+      if (!rootFolder) {
+        console.warn('[folder-edit] create root not found', folder.path);
+        showToast(t('folderLoadError'));
+        return;
+      }
       const createResult = await window.folderApi.createFolder(folder.path, nextName);
       if (!createResult.ok) {
+        console.warn('[folder-edit] create failed', createResult.message);
         showToast(createResult.message || t('createFailed'));
         return;
       }
 
-      const rootFolder = getRootFolderById(folderId);
-      if (!rootFolder) return;
+      console.log('[folder-edit] rescan root', rootFolder.path);
       const scanResult = await window.folderApi.scanFolderPath(rootFolder.path);
       if (!scanResult.ok || !scanResult.folder) {
+        console.warn('[folder-edit] create rescan failed', rootFolder.path, scanResult.message);
         showToast(scanResult.message || t('folderLoadError'));
         return;
       }
 
       setState(prev => ({
         ...prev,
-        items: replaceRootNodeInState(prev.items, rootFolder.path, scanResult.folder as FolderNode),
+        items: replaceRootByPath(prev.items, rootFolder.path, scanResult.folder as FolderNode),
         expandedFolderIds: new Set([...prev.expandedFolderIds, folderId]),
       }));
     } catch (error) {
       console.error(error);
       showToast(t('createFailed'));
     }
-  }, [getFolderById, getRootFolderById, isFolderEditMode, replaceRootNodeInState, showToast, t]);
+  }, [findRootForPath, getFolderById, isFolderEditMode, replaceRootByPath, showToast, t]);
 
   const executeDeleteFolder = useCallback(async (folderId: string) => {
     if (!isFolderEditMode) return;
     const folder = getFolderById(folderId);
     if (!folder || !folder.parentId) return showToast(t('cannotMoveRoot'));
     try {
+      console.log('[folder-edit] delete start', folder.path);
       if (!window.folderApi?.deleteFolder || !window.folderApi?.scanFolderPath) {
         showToast(t('desktopOnlyFeature'));
         return;
       }
+      const rootFolder = findRootForPath(folder.path);
+      if (!rootFolder) {
+        console.warn('[folder-edit] delete root not found', folder.path);
+        showToast(t('folderLoadError'));
+        return;
+      }
       const deleteResult = await window.folderApi.deleteFolder(folder.path);
       if (!deleteResult.ok) {
+        console.warn('[folder-edit] delete failed', deleteResult.message);
         showToast(deleteResult.message || t('deleteFailed'));
         return;
       }
 
-      const rootFolder = getRootFolderById(folderId);
-      if (!rootFolder) return;
+      console.log('[folder-edit] rescan root', rootFolder.path);
       const scanResult = await window.folderApi.scanFolderPath(rootFolder.path);
       if (!scanResult.ok || !scanResult.folder) {
+        console.warn('[folder-edit] delete rescan failed', rootFolder.path, scanResult.message);
         showToast(scanResult.message || t('folderLoadError'));
         return;
       }
 
+      const removedPrefix = normalizeClientPath(folder.path);
       setState(prev => ({
         ...prev,
-        items: replaceRootNodeInState(prev.items, rootFolder.path, scanResult.folder as FolderNode),
+        items: replaceRootByPath(prev.items, rootFolder.path, scanResult.folder as FolderNode),
         selectedFolderId: prev.selectedFolderId === folderId ? null : prev.selectedFolderId,
+        expandedFolderIds: new Set(
+          Array.from(prev.expandedFolderIds).filter(id => !normalizeClientPath(id).startsWith(removedPrefix))
+        ),
       }));
     } catch (error) {
       console.error(error);
       showToast(t('deleteFailed'));
     }
-  }, [getFolderById, getRootFolderById, isFolderEditMode, replaceRootNodeInState, showToast, t]);
+  }, [findRootForPath, getFolderById, isFolderEditMode, normalizeClientPath, replaceRootByPath, showToast, t]);
 
   const toggleTag = (tagId: string) => {
     if (isFolderEditMode) {
@@ -1395,19 +1500,36 @@ export default function App() {
 
   const handleNodeContextMenu = (e: React.MouseEvent, folder: FolderNode) => {
     if (!isFolderEditMode) return;
+    console.log('[context-menu] open', folder.id, folder.path);
+    setState(prev => ({ ...prev, selectedFolderId: folder.id }));
     setContextMenu({ x: e.clientX, y: e.clientY, folderId: folder.id });
   };
 
   const handleDropToNode = async (targetId: string) => {
     if (!isFolderEditMode || !draggingNodeId) return;
-    setDragOverNodeId(null);
-    if (draggingNodeId === targetId) return;
-    await handleMoveNode(draggingNodeId, targetId);
-    setDraggingNodeId(null);
+    try {
+      const sourceNode = getFolderById(draggingNodeId);
+      const targetNode = getFolderById(targetId);
+      if (!sourceNode || !targetNode) return;
+      if (sourceNode.id === targetNode.id) return;
+      if (!sourceNode.parentId) {
+        showToast(t('cannotMoveRoot'));
+        return;
+      }
+      if (isDescendant(sourceNode.id, targetNode.id)) {
+        showToast(t('cannotMoveToSelf'));
+        return;
+      }
+      await handleMoveNode(draggingNodeId, targetId);
+    } finally {
+      setDragOverNodeId(null);
+      setDraggingNodeId(null);
+    }
   };
 
   const handleNodeDragStart = (nodeId: string) => {
     if (!isFolderEditMode) return;
+    console.log('[drag] start', nodeId);
     setContextMenu(null);
     setDraggingNodeId(nodeId);
     setDragOverNodeId(null);
@@ -1425,6 +1547,7 @@ export default function App() {
   };
 
   const handleNodeDragEnd = () => {
+    console.log('[drag] end');
     setDraggingNodeId(null);
     setDragOverNodeId(null);
   };
@@ -1610,6 +1733,7 @@ export default function App() {
                   onToggleExpand={handleToggleExpand}
                   onOpenFolder={handleOpenFolder}
                   onContextMenu={handleNodeContextMenu}
+                  onQuickMenuOpen={handleNodeContextMenu}
                   onDragStart={handleNodeDragStart}
                   onDragEnter={handleNodeDragEnter}
                   onDragLeave={handleNodeDragLeave}
@@ -1815,14 +1939,28 @@ export default function App() {
     {contextMenu && isFolderEditMode && (
       <div
         ref={contextMenuRef}
-        className="fixed z-[95] min-w-44 bg-white border border-gray-200 rounded-lg shadow-xl p-1"
+        className="fixed z-[9999] min-w-44 bg-white border border-gray-200 rounded-lg shadow-xl p-1"
         style={{ left: contextMenu.x, top: contextMenu.y }}
+        onMouseDown={(event) => {
+          event.stopPropagation();
+        }}
+        onClick={(event) => {
+          event.stopPropagation();
+        }}
       >
         <button
           className="w-full text-left px-3 py-2 text-xs font-medium hover:bg-gray-100 rounded"
           onClick={() => {
-            const folder = getFolderById(contextMenu.folderId);
-            setDialogState({ type: 'rename', folderId: contextMenu.folderId, value: folder?.name ?? '' });
+            const folderId = contextMenu.folderId;
+            const folder = getFolderById(folderId);
+            console.log('[context-menu] rename click', folderId);
+            if (!folder) {
+              console.warn('[context-menu] rename target not found', folderId);
+              showToast(t('folderNotFound'));
+              setContextMenu(null);
+              return;
+            }
+            setDialogState({ type: 'rename', folderId, value: folder.name ?? '' });
             setContextMenu(null);
           }}
         >
@@ -1831,7 +1969,16 @@ export default function App() {
         <button
           className="w-full text-left px-3 py-2 text-xs font-medium hover:bg-gray-100 rounded"
           onClick={() => {
-            setDialogState({ type: 'create', folderId: contextMenu.folderId, value: '' });
+            const folderId = contextMenu.folderId;
+            const folder = getFolderById(folderId);
+            console.log('[context-menu] create click', folderId);
+            if (!folder) {
+              console.warn('[context-menu] create target not found', folderId);
+              showToast(t('folderNotFound'));
+              setContextMenu(null);
+              return;
+            }
+            setDialogState({ type: 'create', folderId, value: '' });
             setContextMenu(null);
           }}
         >
@@ -1840,7 +1987,16 @@ export default function App() {
         <button
           className="w-full text-left px-3 py-2 text-xs font-medium text-red-600 hover:bg-red-50 rounded"
           onClick={() => {
-            setDialogState({ type: 'delete', folderId: contextMenu.folderId });
+            const folderId = contextMenu.folderId;
+            const folder = getFolderById(folderId);
+            console.log('[context-menu] delete click', folderId);
+            if (!folder) {
+              console.warn('[context-menu] delete target not found', folderId);
+              showToast(t('folderNotFound'));
+              setContextMenu(null);
+              return;
+            }
+            setDialogState({ type: 'delete', folderId });
             setContextMenu(null);
           }}
         >

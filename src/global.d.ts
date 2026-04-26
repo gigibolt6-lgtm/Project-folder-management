@@ -10,6 +10,11 @@ declare global {
         folder?: FolderNode;
         message?: string;
       }>;
+      registerRoot: (rootPath: string) => Promise<{
+        ok: boolean;
+        rootPath?: string;
+        message?: string;
+      }>;
       createFolder: (parentPath: string, folderName: string) => Promise<{
         ok: boolean;
         folderPath?: string;
