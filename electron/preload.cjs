@@ -13,5 +13,5 @@ contextBridge.exposeInMainWorld('folderApi', {
 });
 
 contextBridge.exposeInMainWorld('electronAPI', {
-  focusAppWindow: () => ipcRenderer.invoke('app:focus-window'),
+  focusAppWindow: () => ipcRenderer.invoke('focus-app-window'),
 });

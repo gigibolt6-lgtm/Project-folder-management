@@ -5,9 +5,10 @@ const fs = require('fs');
 const isDev = !app.isPackaged;
 const registeredRoots = new Set();
 const INVALID_FOLDER_NAME_CHARS = /[<>:"/\\|?*]/;
+let mainWindow = null;
 
 function createWindow() {
-  const mainWindow = new BrowserWindow({
+  mainWindow = new BrowserWindow({
     width: 1440,
     height: 900,
     minWidth: 1024,
@@ -35,16 +36,33 @@ function createWindow() {
   }
 }
 
-ipcMain.handle('app:focus-window', () => {
-  const win = BrowserWindow.getFocusedWindow() || BrowserWindow.getAllWindows()[0];
-  if (!win) return false;
+ipcMain.handle('focus-app-window', async (event) => {
+  const win = BrowserWindow.fromWebContents(event.sender) || mainWindow;
+  if (!win || win.isDestroyed()) {
+    console.warn('[focus-app-window] target window not found');
+    return false;
+  }
 
-  if (win.isMinimized()) win.restore();
-  win.show();
+  if (win.isMinimized()) {
+    win.restore();
+  }
+  if (!win.isVisible()) {
+    win.show();
+  }
+  try {
+    win.moveTop();
+  } catch (error) {
+    console.warn('[focus-app-window] moveTop failed', error);
+  }
+  if (process.platform === 'darwin') {
+    app.focus({ steal: true });
+  }
   win.focus();
   win.webContents.focus();
 
-  return true;
+  const focused = win.isFocused();
+  console.log('[focus-app-window] focused:', focused);
+  return focused;
 });
 
 ipcMain.handle('folder:open', async (_event, folderPath) => {

@@ -1633,6 +1633,7 @@ export default function App() {
 
   useEffect(() => {
     if (dialogState && contextMenu) {
+      console.log('[folder-dialog] forcing context menu close before dialog mount', contextMenu.folderId);
       setContextMenu(null);
     }
   }, [dialogState, contextMenu]);
@@ -1682,21 +1683,30 @@ export default function App() {
 
   const focusFolderDialogInput = useCallback(async () => {
     try {
-      await window.electronAPI?.focusAppWindow?.();
+      const focused = await window.electronAPI?.focusAppWindow?.();
+      console.log('[folder-dialog] focusAppWindow result', focused);
     } catch (error) {
       console.warn('[folder-dialog] focusAppWindow failed', error);
     }
     window.requestAnimationFrame(() => {
-      const input = folderDialogInputRef.current;
-      if (!input) return;
-      input.focus({ preventScroll: true });
-      input.select();
+      window.setTimeout(() => {
+        const input = folderDialogInputRef.current;
+        if (!input) return;
+        console.log('[folder-dialog] before input focus activeElement', document.activeElement);
+        input.focus({ preventScroll: true });
+        input.select();
+        console.log('[folder-dialog] after input focus activeElement', document.activeElement);
+      }, 50);
     });
   }, []);
 
-  useLayoutEffect(() => {
+  useEffect(() => {
     if (!dialogState || (dialogState.type !== 'rename' && dialogState.type !== 'create')) return;
     void focusFolderDialogInput();
+    const timer = window.setTimeout(() => {
+      void focusFolderDialogInput();
+    }, 200);
+    return () => window.clearTimeout(timer);
   }, [dialogState?.type, dialogState?.folderId, focusFolderDialogInput]);
 
   useEffect(() => {
