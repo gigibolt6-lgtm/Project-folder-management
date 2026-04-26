@@ -25,7 +25,7 @@ import {
 } from 'lucide-react';
 import { hierarchy, tree } from 'd3-hierarchy';
 import { cn } from './lib/utils';
-import { Tag, FolderNode, AppState, TagMode, FolderMetadata } from './types';
+import { Tag, FolderNode, AppState, TagMode, FolderMetadata, AppTheme } from './types';
 import { INITIAL_TAGS, INITIAL_SOURCES, MOCK_FOLDER_DATA } from './constants';
 
 // --- Icons Mapping ---
@@ -36,6 +36,18 @@ const ICON_MAP: Record<string, any> = {
   CheckCircle,
   Archive,
 };
+
+const NODE_FONT_FAMILY_MAP: Record<AppTheme['nodeFontFamily'], string> = {
+  system: 'system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
+  notoSansJp: '"Noto Sans JP", system-ui, sans-serif',
+  meiryo: 'Meiryo, system-ui, sans-serif',
+  yuGothic: '"Yu Gothic", "YuGothic", system-ui, sans-serif',
+  'sans-serif': 'sans-serif',
+  monospace: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace',
+};
+
+const getNodeFontFamily = (fontKey: AppTheme['nodeFontFamily']) =>
+  NODE_FONT_FAMILY_MAP[fontKey] ?? NODE_FONT_FAMILY_MAP.system;
 
 // --- Components ---
 
@@ -74,7 +86,7 @@ interface FolderNodeProps {
   onDragEnd: () => void;
   onNodeSizeChange: (id: string, size: { width: number; height: number }) => void;
   tags: Tag[];
-  theme: any;
+  theme: AppTheme;
 }
 
 const FolderNodeComponent: React.FC<FolderNodeProps> = ({ 
@@ -104,7 +116,11 @@ const FolderNodeComponent: React.FC<FolderNodeProps> = ({
   const nodeRef = useRef<HTMLDivElement | null>(null);
   const minContentWidth = 66; // tag 3個分の目安
   const maxContentWidth = 220; // tag 10個分の目安
-  const preferredContentWidth = Math.min(Math.max(data.name.length * 8 + 24, minContentWidth), maxContentWidth);
+  const estimatedCharWidth = Math.max(6, theme.nodeFontSize * 0.62);
+  const preferredContentWidth = Math.min(
+    Math.max(data.name.length * estimatedCharWidth + 24, minContentWidth),
+    maxContentWidth
+  );
 
   useLayoutEffect(() => {
     if (!nodeRef.current) return;
@@ -226,7 +242,17 @@ const FolderNodeComponent: React.FC<FolderNodeProps> = ({
         }}
       >
         <div className="flex items-center justify-between gap-2">
-          <div className="text-xs font-bold text-gray-900 break-words tracking-tight">{data.name}</div>
+          <div
+            className="font-bold break-words tracking-tight"
+            style={{
+              fontSize: `${theme.nodeFontSize}px`,
+              color: theme.nodeTextColor,
+              fontFamily: getNodeFontFamily(theme.nodeFontFamily),
+              lineHeight: 1.2,
+            }}
+          >
+            {data.name}
+          </div>
           {isEditMode && <GripVertical size={12} className="text-blue-400 shrink-0" />}
         </div>
         <div className="flex flex-wrap gap-0.5 mt-1">
@@ -349,6 +375,23 @@ const TRANSLATIONS: Record<string, Record<string, string>> = {
     focusColorDesc: '選択・ハイライト時の強調色',
     lineColorLabel: '連結ラインの色味',
     lineColorDesc: 'フォルダ同士を繋ぐ線の色',
+    treeViewSettings: 'ツリー表示設定',
+    nodeHorizontalGapLabel: 'ノード横間隔',
+    nodeHorizontalGapDesc: '親子ノード間の左右の距離',
+    nodeVerticalGapLabel: 'ノード縦間隔',
+    nodeVerticalGapDesc: '同階層ノード同士の上下の距離',
+    nodeFontSizeLabel: 'フォントサイズ',
+    nodeFontSizeDesc: 'フォルダ名の文字サイズ',
+    nodeFontFamilyLabel: 'フォント',
+    nodeFontFamilyDesc: 'フォルダ名に使う書体',
+    nodeTextColorLabel: '文字色',
+    nodeTextColorDesc: 'フォルダ名の色',
+    fontSystem: 'システム標準',
+    fontNotoSansJp: 'Noto Sans JP',
+    fontMeiryo: 'Meiryo',
+    fontYuGothic: 'Yu Gothic',
+    fontSansSerif: 'sans-serif',
+    fontMonospace: 'monospace',
     folderEditModeSettings: 'フォルダ編集モード',
     folderEditModeTitle: 'フォルダ編集モード',
     folderEditModeDescription: 'ONにするとドラッグ移動・右クリック編集（名前変更/子作成/削除）が有効になります。',
@@ -440,6 +483,23 @@ const TRANSLATIONS: Record<string, Record<string, string>> = {
     focusColorDesc: 'Accent color for selection/highlight',
     lineColorLabel: 'Connector line color',
     lineColorDesc: 'Color of lines connecting folders',
+    treeViewSettings: 'Tree View Settings',
+    nodeHorizontalGapLabel: 'Horizontal node gap',
+    nodeHorizontalGapDesc: 'Left-right distance between parent and child nodes',
+    nodeVerticalGapLabel: 'Vertical node gap',
+    nodeVerticalGapDesc: 'Top-bottom distance between sibling nodes',
+    nodeFontSizeLabel: 'Font size',
+    nodeFontSizeDesc: 'Folder name text size',
+    nodeFontFamilyLabel: 'Font',
+    nodeFontFamilyDesc: 'Typeface used for folder names',
+    nodeTextColorLabel: 'Text color',
+    nodeTextColorDesc: 'Folder name text color',
+    fontSystem: 'System default',
+    fontNotoSansJp: 'Noto Sans JP',
+    fontMeiryo: 'Meiryo',
+    fontYuGothic: 'Yu Gothic',
+    fontSansSerif: 'sans-serif',
+    fontMonospace: 'monospace',
     folderEditModeSettings: 'Folder Edit Mode',
     folderEditModeTitle: 'Folder Edit Mode',
     folderEditModeDescription: 'When ON, drag/move and context menu edits (rename/create child/delete) are enabled.',
@@ -726,6 +786,11 @@ export default function App() {
       folderColor: '#F59E0B',
       focusColor: '#2563EB',
       lineColor: '#BFDBFE',
+      nodeHorizontalGap: 220,
+      nodeVerticalGap: 110,
+      nodeFontSize: 14,
+      nodeFontFamily: 'system',
+      nodeTextColor: '#111827',
     }
   });
 
@@ -749,6 +814,24 @@ export default function App() {
   const [dragOverNodeId, setDragOverNodeId] = useState<string | null>(null);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [nodeSizeMap, setNodeSizeMap] = useState<Record<string, NodeSize>>({});
+  const THEME_STORAGE_KEY = 'project-folder-management-theme';
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const raw = window.localStorage.getItem(THEME_STORAGE_KEY);
+    if (!raw) return;
+    try {
+      const parsed = JSON.parse(raw) as Partial<AppTheme>;
+      setState(prev => ({ ...prev, theme: { ...prev.theme, ...parsed } }));
+    } catch (error) {
+      console.warn('Failed to parse stored theme settings', error);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    window.localStorage.setItem(THEME_STORAGE_KEY, JSON.stringify(state.theme));
+  }, [state.theme]);
 
   const createTag = useCallback((rawTagName: string) => {
     const name = rawTagName.trim();
@@ -1066,11 +1149,14 @@ export default function App() {
     
     // We want hierarchical layout going right
     const treeLayout = tree<FolderNode>()
-      .nodeSize([Math.max(96, maxNodeHeight + 24), Math.max(280, maxNodeWidth + 120)]) // [height padding, width spacing]
+      .nodeSize([
+        Math.max(state.theme.nodeVerticalGap, maxNodeHeight + 12),
+        Math.max(state.theme.nodeHorizontalGap, maxNodeWidth + 60)
+      ])
       .separation((a, b) => (a.parent === b.parent ? 1 : 1.2));
       
     return treeLayout(rootNode);
-  }, [state.items, state.expandedFolderIds, flatData, nodeSizeMap]);
+  }, [state.items, state.expandedFolderIds, flatData, nodeSizeMap, state.theme.nodeHorizontalGap, state.theme.nodeVerticalGap]);
 
   const highlightedFolderIds = useMemo(() => {
     if (state.tagMode === 'search' && state.activeTagFilters.size > 0) {
@@ -2145,6 +2231,115 @@ export default function App() {
                    {/* Env Category */}
                    {settingsCategory === 'env' && (
                      <div className="space-y-6">
+                        <label className="text-[11px] font-bold text-gray-400 uppercase tracking-wider">{t('treeViewSettings')}</label>
+                        <div className="grid grid-cols-1 gap-4">
+                          <div className="p-4 bg-gray-50/50 border border-gray-100 rounded-2xl">
+                            <div className="flex items-center justify-between">
+                              <div>
+                                <div className="text-sm font-bold text-gray-700">{t('nodeHorizontalGapLabel')}</div>
+                                <div className="text-[10px] text-gray-400">{t('nodeHorizontalGapDesc')}</div>
+                              </div>
+                              <div className="text-[10px] font-mono text-gray-500">{state.theme.nodeHorizontalGap}px</div>
+                            </div>
+                            <input
+                              type="range"
+                              min={120}
+                              max={360}
+                              step={5}
+                              value={state.theme.nodeHorizontalGap}
+                              onChange={(e) => {
+                                const value = Number(e.target.value);
+                                setState(prev => ({ ...prev, theme: { ...prev.theme, nodeHorizontalGap: value } }));
+                              }}
+                              className="w-full mt-3"
+                            />
+                          </div>
+
+                          <div className="p-4 bg-gray-50/50 border border-gray-100 rounded-2xl">
+                            <div className="flex items-center justify-between">
+                              <div>
+                                <div className="text-sm font-bold text-gray-700">{t('nodeVerticalGapLabel')}</div>
+                                <div className="text-[10px] text-gray-400">{t('nodeVerticalGapDesc')}</div>
+                              </div>
+                              <div className="text-[10px] font-mono text-gray-500">{state.theme.nodeVerticalGap}px</div>
+                            </div>
+                            <input
+                              type="range"
+                              min={70}
+                              max={180}
+                              step={5}
+                              value={state.theme.nodeVerticalGap}
+                              onChange={(e) => {
+                                const value = Number(e.target.value);
+                                setState(prev => ({ ...prev, theme: { ...prev.theme, nodeVerticalGap: value } }));
+                              }}
+                              className="w-full mt-3"
+                            />
+                          </div>
+
+                          <div className="p-4 bg-gray-50/50 border border-gray-100 rounded-2xl">
+                            <div className="flex items-center justify-between">
+                              <div>
+                                <div className="text-sm font-bold text-gray-700">{t('nodeFontSizeLabel')}</div>
+                                <div className="text-[10px] text-gray-400">{t('nodeFontSizeDesc')}</div>
+                              </div>
+                              <div className="text-[10px] font-mono text-gray-500">{state.theme.nodeFontSize}px</div>
+                            </div>
+                            <input
+                              type="range"
+                              min={11}
+                              max={18}
+                              step={1}
+                              value={state.theme.nodeFontSize}
+                              onChange={(e) => {
+                                const value = Number(e.target.value);
+                                setState(prev => ({ ...prev, theme: { ...prev.theme, nodeFontSize: value } }));
+                              }}
+                              className="w-full mt-3"
+                            />
+                          </div>
+
+                          <div className="p-4 bg-gray-50/50 border border-gray-100 rounded-2xl">
+                            <div className="text-sm font-bold text-gray-700">{t('nodeFontFamilyLabel')}</div>
+                            <div className="text-[10px] text-gray-400 mb-3">{t('nodeFontFamilyDesc')}</div>
+                            <select
+                              value={state.theme.nodeFontFamily}
+                              onChange={(e) => {
+                                setState(prev => ({
+                                  ...prev,
+                                  theme: { ...prev.theme, nodeFontFamily: e.target.value as AppTheme['nodeFontFamily'] }
+                                }));
+                              }}
+                              className="w-full text-xs border border-gray-200 rounded p-2 bg-white"
+                            >
+                              <option value="system">{t('fontSystem')}</option>
+                              <option value="notoSansJp">{t('fontNotoSansJp')}</option>
+                              <option value="meiryo">{t('fontMeiryo')}</option>
+                              <option value="yuGothic">{t('fontYuGothic')}</option>
+                              <option value="sans-serif">{t('fontSansSerif')}</option>
+                              <option value="monospace">{t('fontMonospace')}</option>
+                            </select>
+                          </div>
+
+                          <div className="p-4 bg-gray-50/50 border border-gray-100 rounded-2xl flex items-center justify-between">
+                            <div>
+                              <div className="text-sm font-bold text-gray-700">{t('nodeTextColorLabel')}</div>
+                              <div className="text-[10px] text-gray-400">{t('nodeTextColorDesc')}</div>
+                            </div>
+                            <div className="flex items-center gap-4">
+                              <div className="text-[10px] font-mono text-gray-400 uppercase">{state.theme.nodeTextColor}</div>
+                              <input
+                                type="color"
+                                value={state.theme.nodeTextColor}
+                                onChange={(e) => {
+                                  setState(prev => ({ ...prev, theme: { ...prev.theme, nodeTextColor: e.target.value } }));
+                                }}
+                                className="w-10 h-10 rounded-xl overflow-hidden border-none cursor-pointer shadow-sm shadow-blue-500/10"
+                              />
+                            </div>
+                          </div>
+                        </div>
+
                         <label className="text-[11px] font-bold text-gray-400 uppercase tracking-wider">{t('colorEdit')}</label>
                         
                         <div className="grid grid-cols-1 gap-6">
