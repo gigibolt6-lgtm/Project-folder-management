@@ -931,6 +931,37 @@ export default function App() {
     return (sourceNode.children ?? []).some(containsTarget);
   }, [state.items]);
 
+  const restoreRendererDocumentFocus = useCallback((reason: string) => {
+    console.log('[renderer-refocus] start', {
+      reason,
+      documentHasFocus: document.hasFocus(),
+      activeElement: document.activeElement,
+    });
+
+    window.focus();
+
+    const temporaryFocusTarget = document.createElement('button');
+    temporaryFocusTarget.type = 'button';
+    temporaryFocusTarget.tabIndex = -1;
+    temporaryFocusTarget.setAttribute('aria-hidden', 'true');
+    temporaryFocusTarget.style.cssText =
+      'position:fixed;left:-9999px;top:-9999px;width:1px;height:1px;opacity:0;pointer-events:none;';
+
+    document.body.appendChild(temporaryFocusTarget);
+    temporaryFocusTarget.focus();
+
+    requestAnimationFrame(() => {
+      temporaryFocusTarget.remove();
+      window.focus();
+
+      console.log('[renderer-refocus] after temporary focus reset', {
+        reason,
+        documentHasFocus: document.hasFocus(),
+        activeElement: document.activeElement,
+      });
+    });
+  }, []);
+
   // --- Local Folder Scanning Logic ---
   const handleSelectLocalFolder = async () => {
     try {
@@ -958,6 +989,11 @@ export default function App() {
             { id: rootNode.id, name: rootNode.name, path: rootNode.path, isActive: true }
           ]
         }));
+        restoreRendererDocumentFocus('after-local-root-selected');
+        console.log('[folder-root] after select/register focus state', {
+          documentHasFocus: document.hasFocus(),
+          activeElement: document.activeElement,
+        });
         alert(t('folderScanComplete', { name: rootNode.name }));
         return;
       }
@@ -1023,6 +1059,11 @@ export default function App() {
           { id: rootNode.id, name: handle.name, path: rootNode.path, isActive: true }
         ]
       }));
+      restoreRendererDocumentFocus('after-local-root-selected');
+      console.log('[folder-root] after select/register focus state', {
+        documentHasFocus: document.hasFocus(),
+        activeElement: document.activeElement,
+      });
       
       alert(t('folderScanComplete', { name: handle.name }));
       alert(t('desktopOnlyFeature'));
@@ -1051,6 +1092,16 @@ export default function App() {
     };
     void registerRoots();
   }, [state.items]);
+
+  useEffect(() => {
+    const unsubscribe = window.electronAPI?.onRendererRefocusRequest?.((payload) => {
+      restoreRendererDocumentFocus(payload?.reason ?? 'main-request');
+    });
+
+    return () => {
+      unsubscribe?.();
+    };
+  }, [restoreRendererDocumentFocus]);
 
   // --- Derived Data ---
   const flatData = useMemo(() => {
@@ -1651,6 +1702,9 @@ export default function App() {
   }, [dialogState?.type, dialogState?.folderId]);
 
   const openFolderDialog = useCallback((nextDialog: FolderDialogState) => {
+    if (!document.hasFocus()) {
+      restoreRendererDocumentFocus('before-open-folder-dialog');
+    }
     logFolderDialogSignal('openFolderDialog:start', {
       nextDialog,
       contextMenuExists: false,
@@ -1671,7 +1725,7 @@ export default function App() {
       contextMenuElementExists: false,
     });
     setPendingFolderDialog(nextDialog);
-  }, [logFolderDialogSignal]);
+  }, [logFolderDialogSignal, restoreRendererDocumentFocus]);
 
   useEffect(() => {
     const unsubscribe = window.electronAPI?.onFolderContextMenuCommand?.((command) => {

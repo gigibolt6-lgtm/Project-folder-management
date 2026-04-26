@@ -6,6 +6,70 @@ const isDev = !app.isPackaged;
 const registeredRoots = new Set();
 const INVALID_FOLDER_NAME_CHARS = /[<>:"/\\|?*]/;
 let mainWindow = null;
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+async function restoreWindowFocus(win, reason = 'unknown') {
+  if (!win || win.isDestroyed()) {
+    console.warn('[focus-restore][warn] target window not found', { reason });
+    return false;
+  }
+
+  if (win.isMinimized()) {
+    win.restore();
+  }
+
+  if (!win.isVisible()) {
+    win.show();
+  }
+
+  try {
+    win.moveTop();
+  } catch (error) {
+    console.warn('[focus-restore][warn] moveTop failed', { reason, error });
+  }
+
+  try {
+    if (process.platform === 'win32' || process.platform === 'darwin') {
+      app.focus({ steal: true });
+    } else {
+      app.focus();
+    }
+  } catch (error) {
+    console.warn('[focus-restore][warn] app.focus failed', { reason, error });
+  }
+
+  win.focus();
+  win.webContents.focus();
+
+  await sleep(80);
+
+  try {
+    if (process.platform === 'win32' || process.platform === 'darwin') {
+      app.focus({ steal: true });
+    } else {
+      app.focus();
+    }
+  } catch (error) {
+    console.warn('[focus-restore][warn] app.focus second failed', { reason, error });
+  }
+
+  win.focus();
+  win.webContents.focus();
+
+  const focused = win.isFocused();
+  if (!focused) {
+    console.warn('[focus-restore][warn] BrowserWindow is not focused after restore', {
+      reason,
+      focused,
+      isVisible: win.isVisible(),
+      isMinimized: win.isMinimized(),
+    });
+  } else {
+    console.log('[focus-restore] restored BrowserWindow focus', { reason, focused });
+  }
+
+  return focused;
+}
 
 function createWindow() {
   mainWindow = new BrowserWindow({
@@ -38,37 +102,7 @@ function createWindow() {
 
 ipcMain.handle('focus-app-window', async (event) => {
   const win = BrowserWindow.fromWebContents(event.sender) || mainWindow;
-  if (!win || win.isDestroyed()) {
-    console.warn('[focus-app-window] target window not found');
-    return false;
-  }
-
-  if (win.isMinimized()) {
-    win.restore();
-  }
-  if (!win.isVisible()) {
-    win.show();
-  }
-  try {
-    win.moveTop();
-  } catch (error) {
-    console.warn('[focus-app-window] moveTop failed', error);
-  }
-  if (process.platform === 'darwin') {
-    app.focus({ steal: true });
-  }
-  win.focus();
-  win.webContents.focus();
-
-  const focused = win.isFocused();
-  if (!focused) {
-    console.warn('[focus-app-window][warn] window is not focused after focus request', {
-      isVisible: win.isVisible(),
-      isMinimized: win.isMinimized(),
-      isDestroyed: win.isDestroyed(),
-    });
-  }
-  return focused;
+  return restoreWindowFocus(win, 'focus-app-window-ipc');
 });
 
 ipcMain.handle('folder:show-context-menu', async (event, payload) => {
@@ -223,9 +257,10 @@ function scanDirectoryTree(absolutePath, depth = 0) {
   return node;
 }
 
-ipcMain.handle('folder:selectAndScan', async () => {
+ipcMain.handle('folder:selectAndScan', async (event) => {
+  const win = BrowserWindow.fromWebContents(event.sender) || mainWindow;
   try {
-    const result = await dialog.showOpenDialog({
+    const result = await dialog.showOpenDialog(win, {
       title: 'フォルダを選択',
       properties: ['openDirectory'],
     });
@@ -254,6 +289,13 @@ ipcMain.handle('folder:selectAndScan', async () => {
       ok: false,
       message: error instanceof Error ? error.message : String(error),
     };
+  } finally {
+    await restoreWindowFocus(win, 'after-folder-open-dialog');
+    if (win && !win.isDestroyed()) {
+      win.webContents.send('app:renderer-refocus-request', {
+        reason: 'after-folder-open-dialog',
+      });
+    }
   }
 });
 

@@ -44,6 +44,9 @@ declare global {
         folderPath?: string;
         folderName?: string;
       }) => Promise<boolean>;
+      onRendererRefocusRequest?: (
+        callback: (payload: { reason?: string }) => void,
+      ) => (() => void);
       onFolderContextMenuCommand?: (callback: (command: {
         action: 'rename' | 'create-child' | 'delete';
         folderId: string;
