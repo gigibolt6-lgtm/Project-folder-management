@@ -1618,13 +1618,7 @@ export default function App() {
       }
     };
     const handleEscape = (event: KeyboardEvent) => {
-      const target = event.target as HTMLElement | null;
-      const isTyping =
-        target?.tagName === 'INPUT' ||
-        target?.tagName === 'TEXTAREA' ||
-        target?.tagName === 'SELECT' ||
-        target?.isContentEditable;
-      if (isTyping) return;
+      if (isInteractiveElement(event.target)) return;
       if (event.key === 'Escape') {
         setContextMenu(null);
       }
@@ -1660,8 +1654,17 @@ export default function App() {
   }, [dialogState?.type, dialogState?.folderId]);
 
   const openFolderDialog = useCallback((nextDialog: FolderDialogState) => {
+    console.log('[folder-dialog] open requested', nextDialog);
+    console.log('[folder-dialog] activeElement before open', document.activeElement);
     setContextMenu(null);
-    setDialogState(nextDialog);
+    setDraggingNodeId(null);
+    setDragOverNodeId(null);
+    if (nextDialog?.type === 'rename') {
+      setFolderDialogInput(nextDialog.value ?? '');
+    } else if (nextDialog?.type === 'create') {
+      setFolderDialogInput('');
+    }
+    window.requestAnimationFrame(() => setDialogState(nextDialog));
   }, []);
 
   const submitFolderDialog = useCallback(async () => {
@@ -1677,33 +1680,33 @@ export default function App() {
     if (success) setDialogState(null);
   }, [dialogState, executeCreateChildFolder, executeRenameFolder, folderDialogInput, showToast, t]);
 
-const focusFolderDialogInput = useCallback(async () => {
-  try {
-    await window.electronAPI?.focusAppWindow?.();
-  } catch (error) {
-    console.warn('[folder-dialog] focusAppWindow failed', error);
-  }
-
-  window.requestAnimationFrame(() => {
-    const input = folderDialogInputRef.current;
-    if (!input) return;
-
-    input.focus({ preventScroll: true });
-    input.select();
-  });
-}, []);
-
-useLayoutEffect(() => {
-  if (!dialogState || (dialogState.type !== 'rename' && dialogState.type !== 'create')) return;
-
-  void focusFolderDialogInput();
-}, [dialogState?.type, dialogState?.folderId, focusFolderDialogInput]);
+  const focusFolderDialogInput = useCallback(async () => {
+    try {
+      await window.electronAPI?.focusAppWindow?.();
+    } catch (error) {
+      console.warn('[folder-dialog] focusAppWindow failed', error);
+    }
+    window.requestAnimationFrame(() => {
+      const input = folderDialogInputRef.current;
+      if (!input) return;
+      input.focus({ preventScroll: true });
+      input.select();
+    });
+  }, []);
 
   useLayoutEffect(() => {
     if (!dialogState || (dialogState.type !== 'rename' && dialogState.type !== 'create')) return;
-
     void focusFolderDialogInput();
   }, [dialogState?.type, dialogState?.folderId, focusFolderDialogInput]);
+
+  useEffect(() => {
+    if (!dialogState) return;
+    console.log('[folder-dialog] state set', dialogState);
+    console.log('[folder-dialog] activeElement after state set', document.activeElement);
+    if (contextMenuRef.current) {
+      console.log('[folder-dialog] context menu DOM still mounted', contextMenuRef.current);
+    }
+  }, [dialogState]);
 
   
   return (
@@ -2058,6 +2061,12 @@ useLayoutEffect(() => {
         onMouseDown={(event) => {
           event.stopPropagation();
         }}
+        onPointerDown={(event) => {
+          event.stopPropagation();
+        }}
+        onKeyDown={(event) => {
+          event.stopPropagation();
+        }}
         onClick={(event) => {
           event.stopPropagation();
         }}
@@ -2117,16 +2126,16 @@ useLayoutEffect(() => {
     )}
 
     {dialogState && typeof document !== 'undefined' && createPortal(
-      <div className="fixed inset-0 z-[100] flex items-center justify-center">
+      <div className="fixed inset-0 z-[10010] flex items-center justify-center">
         <div
-          className="absolute inset-0 z-[100] bg-black/30"
+          className="absolute inset-0 z-[10010] bg-black/30"
           onClick={() => {
             setDialogState(null);
           }}
         />
         <div
           draggable={false}
-          className="relative z-[101] w-[420px] space-y-4 rounded-2xl border border-gray-100 bg-white p-6 shadow-2xl"
+          className="relative z-[10011] w-[420px] space-y-4 rounded-2xl border border-gray-100 bg-white p-6 shadow-2xl"
           onClick={(event) => event.stopPropagation()}
           onMouseDown={(event) => event.stopPropagation()}
           onPointerDown={(event) => event.stopPropagation()}
@@ -2140,7 +2149,21 @@ useLayoutEffect(() => {
                 draggable={false}
                 className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm outline-none focus:border-blue-400"
                 value={folderDialogInput}
-                onChange={(event) => setFolderDialogInput(event.target.value)}
+                onChange={(event) => {
+                  console.log('[folder-dialog] onChange', event.target.value);
+                  setFolderDialogInput(event.target.value);
+                }}
+                onFocus={() => {
+                  console.log('[folder-dialog] onFocus');
+                  console.log('[folder-dialog] activeElement', document.activeElement);
+                }}
+                onBlur={() => {
+                  console.log('[folder-dialog] onBlur');
+                  console.log('[folder-dialog] activeElement', document.activeElement);
+                }}
+                onBeforeInput={() => {
+                  console.log('[folder-dialog] onBeforeInput');
+                }}
                 onPointerDown={(event) => {
                   event.stopPropagation();
                   void focusFolderDialogInput();
@@ -2152,6 +2175,7 @@ useLayoutEffect(() => {
                 }}
                 onKeyDown={(event) => {
                   event.stopPropagation();
+                  console.log('[folder-dialog] onKeyDown', event.key, event.defaultPrevented);
                   const nativeEvent = event.nativeEvent as KeyboardEvent;
                   const isComposing = nativeEvent.isComposing || event.key === 'Process';
                   if (isComposing) return;
@@ -2189,7 +2213,21 @@ useLayoutEffect(() => {
                 draggable={false}
                 className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm outline-none focus:border-blue-400"
                 value={folderDialogInput}
-                onChange={(event) => setFolderDialogInput(event.target.value)}
+                onChange={(event) => {
+                  console.log('[folder-dialog] onChange', event.target.value);
+                  setFolderDialogInput(event.target.value);
+                }}
+                onFocus={() => {
+                  console.log('[folder-dialog] onFocus');
+                  console.log('[folder-dialog] activeElement', document.activeElement);
+                }}
+                onBlur={() => {
+                  console.log('[folder-dialog] onBlur');
+                  console.log('[folder-dialog] activeElement', document.activeElement);
+                }}
+                onBeforeInput={() => {
+                  console.log('[folder-dialog] onBeforeInput');
+                }}
                 onPointerDown={(event) => {
                   event.stopPropagation();
                   void focusFolderDialogInput();
@@ -2201,6 +2239,7 @@ useLayoutEffect(() => {
                 }}
                 onKeyDown={(event) => {
                   event.stopPropagation();
+                  console.log('[folder-dialog] onKeyDown', event.key, event.defaultPrevented);
                   const nativeEvent = event.nativeEvent as KeyboardEvent;
                   const isComposing = nativeEvent.isComposing || event.key === 'Process';
                   if (isComposing) return;
