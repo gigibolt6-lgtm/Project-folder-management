@@ -1677,16 +1677,40 @@ export default function App() {
     if (success) setDialogState(null);
   }, [dialogState, executeCreateChildFolder, executeRenameFolder, folderDialogInput, showToast, t]);
 
-  useLayoutEffect(() => {
-    if (!dialogState || (dialogState.type !== 'rename' && dialogState.type !== 'create')) return;
-    const id = window.requestAnimationFrame(() => {
+const focusFolderDialogInput = useCallback(async () => {
+  try {
+    await window.electronAPI?.focusAppWindow?.();
+  } catch (error) {
+    console.warn('[folder-dialog] focusAppWindow failed', error);
+  }
+
+  window.requestAnimationFrame(() => {
+    const input = folderDialogInputRef.current;
+    if (!input) return;
+
+    input.focus({ preventScroll: true });
+    input.select();
+  });
+}, []);
+
+useLayoutEffect(() => {
+  if (!dialogState || (dialogState.type !== 'rename' && dialogState.type !== 'create')) return;
+
+  focusFolderDialogInput();
+}, [dialogState?.type, dialogState?.folderId, focusFolderDialogInput]);
+
       const input = folderDialogInputRef.current;
       if (!input) return;
       input.focus({ preventScroll: true });
       input.select();
     });
-    return () => window.cancelAnimationFrame(id);
-  }, [dialogState?.type, dialogState?.folderId]);
+  }, []);
+
+  useLayoutEffect(() => {
+    if (!dialogState || (dialogState.type !== 'rename' && dialogState.type !== 'create')) return;
+
+    void focusFolderDialogInput();
+  }, [dialogState?.type, dialogState?.folderId, focusFolderDialogInput]);
 
   
   return (
@@ -2124,9 +2148,15 @@ export default function App() {
                 className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm outline-none focus:border-blue-400"
                 value={folderDialogInput}
                 onChange={(event) => setFolderDialogInput(event.target.value)}
-                onPointerDown={(event) => event.stopPropagation()}
+                onPointerDown={(event) => {
+                  event.stopPropagation();
+                  void focusFolderDialogInput();
+                }}
                 onMouseDown={(event) => event.stopPropagation()}
-                onClick={(event) => event.stopPropagation()}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  folderDialogInputRef.current?.focus({ preventScroll: true });
+                }}
                 onKeyDown={(event) => {
                   event.stopPropagation();
                   const nativeEvent = event.nativeEvent as KeyboardEvent;
@@ -2167,9 +2197,15 @@ export default function App() {
                 className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm outline-none focus:border-blue-400"
                 value={folderDialogInput}
                 onChange={(event) => setFolderDialogInput(event.target.value)}
-                onPointerDown={(event) => event.stopPropagation()}
+                onPointerDown={(event) => {
+                  event.stopPropagation();
+                  void focusFolderDialogInput();
+                }}
                 onMouseDown={(event) => event.stopPropagation()}
-                onClick={(event) => event.stopPropagation()}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  folderDialogInputRef.current?.focus({ preventScroll: true });
+                }}
                 onKeyDown={(event) => {
                   event.stopPropagation();
                   const nativeEvent = event.nativeEvent as KeyboardEvent;
