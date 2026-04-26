@@ -37,6 +37,9 @@ declare global {
         message?: string;
       }>;
     };
+    electronAPI?: {
+      focusAppWindow?: () => Promise<boolean>;
+    };
   }
 }
 
