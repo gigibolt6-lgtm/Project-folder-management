@@ -1086,6 +1086,7 @@ export default function App() {
     setToastMessage(message);
     window.setTimeout(() => setToastMessage(null), 2800);
   }, []);
+  const isNodeDragEnabled = isFolderEditMode && !dialogState;
 
   const getFolderById = useCallback((id: string) => flatData.find(f => f.id === id), [flatData]);
   const normalizeClientPath = useCallback((value: string) => {
@@ -1293,31 +1294,40 @@ export default function App() {
   }, [findRootForPath, getFolderById, isDescendant, isFolderEditMode, replaceRootByPath, showToast, t]);
 
   const executeRenameFolder = useCallback(async (folderId: string, rawName: string) => {
-    if (!isFolderEditMode) return;
+    if (!isFolderEditMode) return false;
     const folder = getFolderById(folderId);
-    if (!folder || !folder.parentId) return;
+    if (!folder || !folder.parentId) return false;
     const nextName = sanitizeFolderName(rawName);
-    if (!nextName) return showToast(t('emptyFolderName'));
-    if (INVALID_FOLDER_CHARS.test(nextName)) return showToast(t('invalidFolderName'));
-    if (nextName === folder.name) return showToast(t('folderNameUnchanged'));
+    if (!nextName) {
+      showToast(t('emptyFolderName'));
+      return false;
+    }
+    if (INVALID_FOLDER_CHARS.test(nextName)) {
+      showToast(t('invalidFolderName'));
+      return false;
+    }
+    if (nextName === folder.name) {
+      showToast(t('folderNameUnchanged'));
+      return false;
+    }
 
     try {
       console.log('[folder-edit] rename start', folder.path, nextName);
       if (!window.folderApi?.renameFolder || !window.folderApi?.scanFolderPath) {
         showToast(t('desktopOnlyFeature'));
-        return;
+        return false;
       }
       const rootFolder = findRootForPath(folder.path);
       if (!rootFolder) {
         console.warn('[folder-edit] rename root not found', folder.path);
         showToast(t('folderLoadError'));
-        return;
+        return false;
       }
       const renameResult = await window.folderApi.renameFolder(folder.path, nextName);
       if (!renameResult.ok) {
         console.warn('[folder-edit] rename failed', renameResult.message);
         showToast(renameResult.message || t('renameFailed'));
-        return;
+        return false;
       }
 
       console.log('[folder-edit] rescan root', rootFolder.path);
@@ -1325,41 +1335,49 @@ export default function App() {
       if (!scanResult.ok || !scanResult.folder) {
         console.warn('[folder-edit] rename rescan failed', rootFolder.path, scanResult.message);
         showToast(scanResult.message || t('folderLoadError'));
-        return;
+        return false;
       }
 
       setState(prev => ({ ...prev, items: replaceRootByPath(prev.items, rootFolder.path, scanResult.folder as FolderNode) }));
+      return true;
     } catch (error) {
       console.error(error);
       showToast(t('renameFailed'));
+      return false;
     }
   }, [findRootForPath, getFolderById, isFolderEditMode, replaceRootByPath, showToast, t]);
 
   const executeCreateChildFolder = useCallback(async (folderId: string, rawName: string) => {
-    if (!isFolderEditMode) return;
+    if (!isFolderEditMode) return false;
     const folder = getFolderById(folderId);
-    if (!folder) return;
+    if (!folder) return false;
     const nextName = sanitizeFolderName(rawName);
-    if (!nextName) return showToast(t('emptyFolderName'));
-    if (INVALID_FOLDER_CHARS.test(nextName)) return showToast(t('invalidFolderName'));
+    if (!nextName) {
+      showToast(t('emptyFolderName'));
+      return false;
+    }
+    if (INVALID_FOLDER_CHARS.test(nextName)) {
+      showToast(t('invalidFolderName'));
+      return false;
+    }
 
     try {
       console.log('[folder-edit] create start', folder.path, nextName);
       if (!window.folderApi?.createFolder || !window.folderApi?.scanFolderPath) {
         showToast(t('desktopOnlyFeature'));
-        return;
+        return false;
       }
       const rootFolder = findRootForPath(folder.path);
       if (!rootFolder) {
         console.warn('[folder-edit] create root not found', folder.path);
         showToast(t('folderLoadError'));
-        return;
+        return false;
       }
       const createResult = await window.folderApi.createFolder(folder.path, nextName);
       if (!createResult.ok) {
         console.warn('[folder-edit] create failed', createResult.message);
         showToast(createResult.message || t('createFailed'));
-        return;
+        return false;
       }
 
       console.log('[folder-edit] rescan root', rootFolder.path);
@@ -1367,7 +1385,7 @@ export default function App() {
       if (!scanResult.ok || !scanResult.folder) {
         console.warn('[folder-edit] create rescan failed', rootFolder.path, scanResult.message);
         showToast(scanResult.message || t('folderLoadError'));
-        return;
+        return false;
       }
 
       setState(prev => ({
@@ -1375,9 +1393,11 @@ export default function App() {
         items: replaceRootByPath(prev.items, rootFolder.path, scanResult.folder as FolderNode),
         expandedFolderIds: new Set([...prev.expandedFolderIds, folderId]),
       }));
+      return true;
     } catch (error) {
       console.error(error);
       showToast(t('createFailed'));
+      return false;
     }
   }, [findRootForPath, getFolderById, isFolderEditMode, replaceRootByPath, showToast, t]);
 
@@ -1588,6 +1608,13 @@ export default function App() {
       }
     };
     const handleEscape = (event: KeyboardEvent) => {
+      const target = event.target as HTMLElement | null;
+      const isTyping =
+        target?.tagName === 'INPUT' ||
+        target?.tagName === 'TEXTAREA' ||
+        target?.tagName === 'SELECT' ||
+        target?.isContentEditable;
+      if (isTyping) return;
       if (event.key === 'Escape') {
         setContextMenu(null);
       }
@@ -1599,6 +1626,11 @@ export default function App() {
       window.removeEventListener('keydown', handleEscape);
     };
   }, [contextMenu]);
+
+  useEffect(() => {
+    if (!dialogState) return;
+    console.log('[folder-dialog] open', dialogState);
+  }, [dialogState]);
 
   return (
     <div className="flex flex-col h-screen bg-[#F3F4F6] text-[#1F2937] overflow-hidden font-sans">
@@ -1727,7 +1759,7 @@ export default function App() {
                   isSelected={state.selectedFolderId === node.data.id}
                   isHighlighted={highlightedFolderIds.has(node.data.id)}
                   isExpanded={state.expandedFolderIds.has(node.data.id)}
-                  isEditMode={isFolderEditMode}
+                  isEditMode={isNodeDragEnabled}
                   isDragTarget={dragOverNodeId === node.data.id}
                   onSelect={handleSelectNode}
                   onToggleExpand={handleToggleExpand}
@@ -2006,23 +2038,69 @@ export default function App() {
     )}
 
     {dialogState && (
-      <div className="fixed inset-0 z-[90] bg-black/30 flex items-center justify-center">
-        <div className="bg-white rounded-2xl shadow-2xl border border-gray-100 w-[420px] p-6 space-y-4">
+      <div
+        className="fixed inset-0 z-[10000] flex items-center justify-center"
+        onClick={() => setDialogState(null)}
+        onMouseDown={(event) => event.stopPropagation()}
+        onPointerDown={(event) => event.stopPropagation()}
+      >
+        <div className="absolute inset-0 z-0 bg-black/30" />
+        <div
+          className="relative z-10 w-[420px] space-y-4 rounded-2xl border border-gray-100 bg-white p-6 shadow-2xl pointer-events-auto"
+          onClick={(event) => event.stopPropagation()}
+          onMouseDown={(event) => event.stopPropagation()}
+          onPointerDown={(event) => event.stopPropagation()}
+          onContextMenu={(event) => event.stopPropagation()}
+        >
           {dialogState.type === 'rename' && (
             <>
               <h3 className="text-lg font-bold text-gray-900">{t('renameFolder')}</h3>
               <input
+                autoFocus
                 className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm outline-none focus:border-blue-400"
                 value={dialogState.value}
-                onChange={(e) => setDialogState({ ...dialogState, value: e.target.value })}
+                onChange={(event) => {
+                  const nextValue = event.target.value;
+                  console.log('[folder-dialog] input change', nextValue);
+                  setDialogState(prev => {
+                    if (!prev || (prev.type !== 'rename' && prev.type !== 'create')) return prev;
+                    return { ...prev, value: nextValue };
+                  });
+                }}
+                onClick={(event) => event.stopPropagation()}
+                onMouseDown={(event) => event.stopPropagation()}
+                onKeyDown={async (event) => {
+                  event.stopPropagation();
+                  if (event.key === 'Escape') {
+                    event.preventDefault();
+                    setDialogState(null);
+                    return;
+                  }
+                  if (event.key !== 'Enter' || event.nativeEvent.isComposing) return;
+                  event.preventDefault();
+                  const nextValue = dialogState.value.trim();
+                  if (!nextValue) {
+                    showToast(t('emptyFolderName'));
+                    return;
+                  }
+                  console.log('[folder-dialog] submit', dialogState);
+                  const success = await executeRenameFolder(dialogState.folderId, nextValue);
+                  if (success) setDialogState(null);
+                }}
               />
               <div className="flex justify-end gap-2">
                 <button className="px-3 py-1.5 text-sm text-gray-500" onClick={() => setDialogState(null)}>{t('cancel')}</button>
                 <button
                   className="px-3 py-1.5 text-sm font-semibold text-white bg-blue-600 rounded-lg"
                   onClick={async () => {
-                    await executeRenameFolder(dialogState.folderId, dialogState.value);
-                    setDialogState(null);
+                    const nextValue = dialogState.value.trim();
+                    if (!nextValue) {
+                      showToast(t('emptyFolderName'));
+                      return;
+                    }
+                    console.log('[folder-dialog] submit', dialogState);
+                    const success = await executeRenameFolder(dialogState.folderId, nextValue);
+                    if (success) setDialogState(null);
                   }}
                 >
                   {t('rename')}
@@ -2036,17 +2114,51 @@ export default function App() {
               <h3 className="text-lg font-bold text-gray-900">{t('createChildFolder')}</h3>
               <p className="text-xs text-gray-500">{t('createChildFolderDescription')}</p>
               <input
+                autoFocus
                 className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm outline-none focus:border-blue-400"
                 value={dialogState.value}
-                onChange={(e) => setDialogState({ ...dialogState, value: e.target.value })}
+                onChange={(event) => {
+                  const nextValue = event.target.value;
+                  console.log('[folder-dialog] input change', nextValue);
+                  setDialogState(prev => {
+                    if (!prev || (prev.type !== 'rename' && prev.type !== 'create')) return prev;
+                    return { ...prev, value: nextValue };
+                  });
+                }}
+                onClick={(event) => event.stopPropagation()}
+                onMouseDown={(event) => event.stopPropagation()}
+                onKeyDown={async (event) => {
+                  event.stopPropagation();
+                  if (event.key === 'Escape') {
+                    event.preventDefault();
+                    setDialogState(null);
+                    return;
+                  }
+                  if (event.key !== 'Enter' || event.nativeEvent.isComposing) return;
+                  event.preventDefault();
+                  const nextValue = dialogState.value.trim();
+                  if (!nextValue) {
+                    showToast(t('emptyFolderName'));
+                    return;
+                  }
+                  console.log('[folder-dialog] submit', dialogState);
+                  const success = await executeCreateChildFolder(dialogState.folderId, nextValue);
+                  if (success) setDialogState(null);
+                }}
               />
               <div className="flex justify-end gap-2">
                 <button className="px-3 py-1.5 text-sm text-gray-500" onClick={() => setDialogState(null)}>{t('cancel')}</button>
                 <button
                   className="px-3 py-1.5 text-sm font-semibold text-white bg-blue-600 rounded-lg"
                   onClick={async () => {
-                    await executeCreateChildFolder(dialogState.folderId, dialogState.value);
-                    setDialogState(null);
+                    const nextValue = dialogState.value.trim();
+                    if (!nextValue) {
+                      showToast(t('emptyFolderName'));
+                      return;
+                    }
+                    console.log('[folder-dialog] submit', dialogState);
+                    const success = await executeCreateChildFolder(dialogState.folderId, nextValue);
+                    if (success) setDialogState(null);
                   }}
                 >
                   {t('create')}
