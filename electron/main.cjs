@@ -61,7 +61,13 @@ ipcMain.handle('focus-app-window', async (event) => {
   win.webContents.focus();
 
   const focused = win.isFocused();
-  console.log('[focus-app-window] focused:', focused);
+  if (!focused) {
+    console.warn('[focus-app-window][warn] window is not focused after focus request', {
+      isVisible: win.isVisible(),
+      isMinimized: win.isMinimized(),
+      isDestroyed: win.isDestroyed(),
+    });
+  }
   return focused;
 });
 
