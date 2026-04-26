@@ -814,6 +814,9 @@ export default function App() {
   const [dragOverNodeId, setDragOverNodeId] = useState<string | null>(null);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [nodeSizeMap, setNodeSizeMap] = useState<Record<string, NodeSize>>({});
+  const MIN_TREE_ZOOM = 0.5;
+  const MAX_TREE_ZOOM = 2;
+  const TREE_ZOOM_STEP = 0.1;
   const THEME_STORAGE_KEY = 'project-folder-management-theme';
 
   useEffect(() => {
@@ -1496,6 +1499,33 @@ export default function App() {
     setDragOverNodeId(null);
   };
 
+  const applyTreeZoom = useCallback((nextScale: number, anchor?: { x: number; y: number }) => {
+    const clampedScale = Math.max(MIN_TREE_ZOOM, Math.min(MAX_TREE_ZOOM, nextScale));
+    setViewTransform(prev => {
+      if (!anchor) return { ...prev, k: clampedScale };
+      const worldX = (anchor.x - prev.x) / prev.k;
+      const worldY = (anchor.y - prev.y) / prev.k;
+      return {
+        x: anchor.x - worldX * clampedScale,
+        y: anchor.y - worldY * clampedScale,
+        k: clampedScale
+      };
+    });
+  }, []);
+
+  const handleTreeWheel = useCallback((event: React.WheelEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    if (!containerRef.current) return;
+    const rect = containerRef.current.getBoundingClientRect();
+    const anchor = {
+      x: event.clientX - rect.left,
+      y: event.clientY - rect.top
+    };
+    const direction = event.deltaY < 0 ? 1 : -1;
+    const nextScale = viewTransform.k + direction * TREE_ZOOM_STEP;
+    applyTreeZoom(nextScale, anchor);
+  }, [applyTreeZoom, viewTransform.k]);
+
   useEffect(() => {
     if (!contextMenu) return;
     const handlePointerDown = (event: MouseEvent) => {
@@ -1571,6 +1601,7 @@ export default function App() {
               "w-full h-full relative z-10",
               isFolderEditMode ? "cursor-default" : "cursor-grab active:cursor-grabbing"
             )}
+          onWheel={handleTreeWheel}
           onMouseDown={(e) => {
             if (isFolderEditMode) return;
             const startX = e.clientX - viewTransform.x;
@@ -1664,28 +1695,35 @@ export default function App() {
         </div>
 
         {/* View Controls */}
-        <div className="absolute bottom-6 left-6 p-1 bg-white rounded-lg shadow-lg border border-gray-100 flex items-center gap-1 z-30">
+        <div
+          className="absolute bottom-6 left-6 p-1 bg-white rounded-lg shadow-lg border border-gray-100 flex items-center gap-1 z-30"
+          onMouseDown={(event) => event.stopPropagation()}
+        >
           <button 
-            onClick={() => setViewTransform(prev => ({ ...prev, k: Math.min(prev.k + 0.1, 2) }))}
+            onClick={() => applyTreeZoom(viewTransform.k + TREE_ZOOM_STEP)}
             className="p-2 hover:bg-gray-100 rounded-md text-gray-600 transition-colors"
           >
             <Plus size={18} />
           </button>
           <button 
-            onClick={() => setViewTransform(prev => ({ ...prev, k: Math.max(prev.k - 0.1, 0.5) }))}
+            onClick={() => applyTreeZoom(viewTransform.k - TREE_ZOOM_STEP)}
             className="p-2 hover:bg-gray-100 rounded-md text-gray-600 transition-colors"
           >
             <Minus size={18} />
           </button>
           <div className="h-4 w-px bg-gray-200 mx-1" />
+          <div className="text-[11px] font-bold text-gray-600 min-w-10 text-center">
+            {Math.round(viewTransform.k * 100)}%
+          </div>
+          <div className="h-4 w-px bg-gray-200 mx-1" />
           <button 
-            onClick={() => setViewTransform({ x: 100, y: 300, k: 1 })}
+            onClick={() => applyTreeZoom(1)}
             className="p-2 hover:bg-gray-100 rounded-md text-gray-600 transition-colors"
           >
             <Maximize2 size={18} />
           </button>
-        </div>
-      </div>
+            </div>
+          </div>
 
       {/* --- Right Sidebar (Info Panel) --- */}
       <aside className="w-80 bg-white border-l border-gray-200 flex flex-col shrink-0 z-40 shadow-xl">
