@@ -122,6 +122,8 @@ ipcMain.handle('folder:show-context-menu', async (event, payload) => {
 
   const sendCommand = (action) => {
     if (win.isDestroyed()) return;
+    win.focus();
+    win.webContents.focus();
     win.webContents.send('folder:context-menu-command', {
       action,
       folderId,
@@ -137,7 +139,15 @@ ipcMain.handle('folder:show-context-menu', async (event, payload) => {
     { label: 'フォルダ削除', click: () => sendCommand('delete') },
   ]);
 
-  menu.popup({ window: win });
+  menu.popup({
+    window: win,
+    callback: () => {
+      if (!win.isDestroyed()) {
+        win.focus();
+        win.webContents.focus();
+      }
+    },
+  });
   return true;
 });
 

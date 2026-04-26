@@ -1702,9 +1702,6 @@ export default function App() {
   }, [dialogState?.type, dialogState?.folderId]);
 
   const openFolderDialog = useCallback((nextDialog: FolderDialogState) => {
-    if (!document.hasFocus()) {
-      restoreRendererDocumentFocus('before-open-folder-dialog');
-    }
     logFolderDialogSignal('openFolderDialog:start', {
       nextDialog,
       contextMenuExists: false,
@@ -1725,7 +1722,7 @@ export default function App() {
       contextMenuElementExists: false,
     });
     setPendingFolderDialog(nextDialog);
-  }, [logFolderDialogSignal, restoreRendererDocumentFocus]);
+  }, [logFolderDialogSignal]);
 
   useEffect(() => {
     const unsubscribe = window.electronAPI?.onFolderContextMenuCommand?.((command) => {
@@ -1765,41 +1762,9 @@ export default function App() {
 
   useEffect(() => {
     if (!pendingFolderDialog) return;
-    let cancelled = false;
-    let attempts = 0;
-
-    const openWhenDocumentFocused = () => {
-      if (cancelled) return;
-      attempts += 1;
-
-      logFolderDialogSignal('pendingFolderDialog:check-document-focus', {
-        attempts,
-        pendingFolderDialog,
-        documentHasFocus: document.hasFocus(),
-        activeElement: document.activeElement,
-      });
-
-      if (document.hasFocus() || attempts >= 10) {
-        if (!document.hasFocus()) {
-          console.warn('[folder-dialog][warn] opening dialog while document.hasFocus() is still false', {
-            attempts,
-            pendingFolderDialog,
-            activeElement: document.activeElement,
-          });
-        }
-        setDialogState(pendingFolderDialog);
-        setPendingFolderDialog(null);
-        return;
-      }
-
-      window.setTimeout(openWhenDocumentFocused, 50);
-    };
-
-    window.setTimeout(openWhenDocumentFocused, 50);
-    return () => {
-      cancelled = true;
-    };
-  }, [pendingFolderDialog, logFolderDialogSignal]);
+    setDialogState(pendingFolderDialog);
+    setPendingFolderDialog(null);
+  }, [pendingFolderDialog]);
 
   const submitFolderDialog = useCallback(async () => {
     if (!dialogState || (dialogState.type !== 'rename' && dialogState.type !== 'create')) return;
@@ -1831,6 +1796,7 @@ export default function App() {
       folderDialogFocusCountRef.current = 1;
     }
     lastFolderDialogFocusAtRef.current = now;
+    window.focus();
     window.requestAnimationFrame(() => {
       const input = folderDialogInputRef.current;
       if (!input) {
