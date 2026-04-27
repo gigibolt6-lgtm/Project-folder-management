@@ -430,6 +430,7 @@ const TRANSLATIONS: Record<string, Record<string, string>> = {
     create: '作成',
     delete: '削除',
     createChildFolderDescription: '選択中のフォルダ内に新しい子フォルダを作成します',
+    folderDialogFocusNote: '※ 入力できない場合は、一度アプリ外をクリックしてから再度この入力欄を選択してください。',
     confirmDeleteFolder: 'このフォルダを削除しますか？',
     confirmDeleteWarning: 'この操作により配下のファイル・フォルダも削除されます（ゴミ箱移動ではありません）。',
     emptyFolderName: 'フォルダ名を入力してください',
@@ -538,6 +539,7 @@ const TRANSLATIONS: Record<string, Record<string, string>> = {
     create: 'Create',
     delete: 'Delete',
     createChildFolderDescription: 'Create a new child folder inside the selected folder.',
+    folderDialogFocusNote: 'If the input field does not respond, click outside the app once, then select this field again.',
     confirmDeleteFolder: 'Do you want to delete this folder?',
     confirmDeleteWarning: 'All nested files and folders will be permanently deleted (not moved to trash).',
     emptyFolderName: 'Please enter a folder name',
@@ -2340,6 +2342,7 @@ export default function App() {
                   void submitFolderDialog();
                 }}
               />
+              <p className="mt-1.5 text-[12px] text-gray-400">{t('folderDialogFocusNote')}</p>
               <div className="flex justify-end gap-2">
                 <button draggable={false} className="px-3 py-1.5 text-sm text-gray-500" onClick={() => setDialogState(null)}>{t('cancel')}</button>
                 <button
@@ -2455,6 +2458,7 @@ export default function App() {
                   void submitFolderDialog();
                 }}
               />
+              <p className="mt-1.5 text-[12px] text-gray-400">{t('folderDialogFocusNote')}</p>
               <div className="flex justify-end gap-2">
                 <button draggable={false} className="px-3 py-1.5 text-sm text-gray-500" onClick={() => setDialogState(null)}>{t('cancel')}</button>
                 <button
