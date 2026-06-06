@@ -4,14 +4,15 @@
   "version": "0.0.0",
   "main": "electron/main.cjs",
   "type": "module",
-"scripts": {
-  "dev:web": "vite --port=3000 --host=0.0.0.0",
-  "dev:electron": "wait-on http://127.0.0.1:3000 && electron .",
-  "dev": "concurrently -k \"npm run dev:web\" \"npm run dev:electron\"",
-  "build": "vite build",
-  "preview": "vite preview",
-  "clean": "rm -rf dist",
-  "lint": "tsc --noEmit"
+  "scripts": {
+    "dev:web": "vite --host=127.0.0.1 --port=3000 --strictPort",
+    "dev:browser": "vite --host=127.0.0.1 --port=3000 --strictPort --open=http://127.0.0.1:3000/",
+    "dev:electron": "wait-on http://127.0.0.1:3000 && electron .",
+    "dev": "concurrently -k \"npm run dev:web\" \"npm run dev:electron\"",
+    "build": "vite build",
+    "preview": "vite preview --host=127.0.0.1 --port=4173 --strictPort",
+    "clean": "rm -rf dist",
+    "lint": "tsc --noEmit"
   },
   "dependencies": {
     "@google/genai": "^1.29.0",
