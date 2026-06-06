@@ -25,12 +25,13 @@ View your app in AI Studio: https://ai.studio/apps/f33c6b90-fbed-4acf-b40a-10378
    ```sh
    npm run dev:browser
    ```
-4. If the browser does not open automatically, open this exact URL:
+4. If the browser does not open automatically, open this URL when running on your own machine:
    ```text
    http://127.0.0.1:3000/
    ```
+   In a cloud or container workspace, open the forwarded preview URL for port `3000` instead.
 
-`127.0.0.1` is used instead of `localhost` so the app does not depend on how your OS, proxy, or browser resolves `localhost`.
+The Vite server binds to `0.0.0.0` so browser previews and container port forwarding can reach it. The browser still opens `127.0.0.1` for local development so the app does not depend on how your OS, proxy, or browser resolves `localhost`.
 
 ## Run the Electron App
 
@@ -46,9 +47,9 @@ VITE_DEV_SERVER_URL=http://127.0.0.1:3000 npm run dev:electron
 
 ## Other Commands
 
-- `npm run dev:web` starts only the Vite web server without opening a browser.
-- `npm run dev:browser` starts the Vite web server and opens `http://127.0.0.1:3000/`.
+- `npm run dev:web` starts only the Vite web server without opening a browser and binds it to `0.0.0.0:3000`.
+- `npm run dev:browser` starts the Vite web server on `0.0.0.0:3000` and opens `http://127.0.0.1:3000/` for local development.
 - `npm run dev` starts the Vite web server and the Electron app together.
 - `npm run build` creates a production web build in `dist/`.
-- `npm run preview` serves the production build at `http://127.0.0.1:4173/` for browser testing.
+- `npm run preview` serves the production build on `0.0.0.0:4173` for browser testing; use `http://127.0.0.1:4173/` locally or the forwarded preview URL in a cloud/container workspace.
 - `npm run lint` runs the TypeScript type check.
