@@ -28,6 +28,7 @@ import { hierarchy, tree } from 'd3-hierarchy';
 import { cn } from './lib/utils';
 import { Tag, FolderNode, AppState, TagMode, FolderMetadata, AppTheme } from './types';
 import { INITIAL_TAGS, INITIAL_SOURCES, MOCK_FOLDER_DATA } from './constants';
+import { BattleTestScreen2 } from './BattleTestScreen2';
 
 // --- Icons Mapping ---
 const ICON_MAP: Record<string, any> = {
@@ -2203,6 +2204,8 @@ export default function App() {
               </div>
             )}
           </section>
+
+          <BattleTestScreen2 />
         </div>
       </aside>
     </main>
