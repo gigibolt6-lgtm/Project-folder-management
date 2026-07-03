@@ -1,0 +1,308 @@
+Project Folder Management App - Integration Structure Notes
+==========================================================
+
+Purpose
+-------
+This application is a React + Electron folder tree/tag management tool. It visualizes a scanned folder hierarchy as an interactive tree, lets users assign/search tags, edit folder metadata, open real OS folders through Electron IPC, and manage local folder structure in edit mode.
+
+1. Runtime and Build Overview
+-----------------------------
+- Frontend framework: React 19 with TypeScript.
+- Bundler/dev server: Vite.
+- Desktop shell: Electron.
+- Styling: Tailwind-style utility classes through the app stylesheet and @tailwindcss/vite.
+- Tree layout: d3-hierarchy.
+- Animation: motion/react.
+- Icons: lucide-react.
+
+Important scripts in package.json:
+- npm install: install dependencies.
+- npm run dev:web: start Vite on port 3000.
+- npm run dev: start Vite and Electron together.
+- npm run build: build the web assets into dist/.
+- npm run lint: run TypeScript type checking with tsc --noEmit.
+
+Integration note:
+If embedding only the web UI into another app, the Electron files can be replaced by an equivalent host bridge. If keeping desktop folder-open and folder-scan behavior, preserve the window.folderApi contract described below.
+
+2. Repository Layout
+--------------------
+- package.json: project metadata, npm scripts, runtime dependencies, and Electron entrypoint.
+- vite.config.ts: Vite configuration.
+- index.html: Vite HTML entry.
+- src/main.tsx: React bootstrap that renders App.
+- src/App.tsx: main application container and nearly all UI/interaction logic.
+- src/types.ts: shared TypeScript models for folders, tags, roots, theme, language, and app state.
+- src/constants.ts: initial mock folder tree, initial tags, and initial root source.
+- src/global.d.ts: TypeScript declaration for the Electron/browser host API exposed on window.folderApi.
+- src/index.css: global stylesheet and Tailwind import surface.
+- src/lib/utils.ts: shared className merge helper.
+- electron/main.cjs: Electron main process, BrowserWindow creation, folder open IPC, and folder scan IPC.
+- electron/preload.cjs: secure contextBridge exposure of folder APIs to the renderer.
+- metadata.json: app metadata from the original AI Studio project.
+
+3. Core Data Model
+------------------
+The primary data structures are defined in src/types.ts.
+
+Tag:
+- id: unique tag id.
+- name: display name.
+- color: display color.
+- icon: optional icon key mapped to lucide icons.
+- description: optional explanatory text.
+- isActive: whether the tag is enabled.
+
+FolderNode:
+- id: unique folder node id.
+- name: display folder name.
+- path: real or virtual folder path.
+- parentId: derived parent id used when the tree is flattened.
+- children: nested FolderNode children.
+- tags: array of Tag ids.
+- metadata: editable folder information.
+
+FolderMetadata:
+- description.
+- department.
+- owner.
+- remark.
+
+RootSource:
+- id, name, path, isActive for registered root folders.
+
+AppState:
+- items: root FolderNode array.
+- tags: all available tags.
+- sources: registered root folder sources.
+- selectedFolderId: currently selected node.
+- expandedFolderIds: Set of folder ids whose children are visible.
+- focusedFolderId: reserved/current focus id.
+- tagMode: assign or search.
+- activeTagFilters: Set of tag ids used in search mode.
+- searchQuery: folder-name search text.
+- isSettingsOpen: settings modal state.
+- language: active UI language.
+- theme: background, folder icon, focus, and line colors.
+
+Integration note:
+For integration into another app, treat AppState.items, AppState.tags, and per-folder metadata/tags as the persistence boundary. At present the app initializes from constants and mutates state in memory; production integration should replace this with a persistence adapter or parent-provided state/actions.
+
+4. Main Frontend Composition
+----------------------------
+src/App.tsx contains these major pieces:
+
+- Translation table: in-file TRANSLATIONS object for ja/en/th/zh/tl/pl labels.
+- TagBadge: small reusable tag badge component.
+- FolderNodeComponent: visual node in the tree.
+- App component: state owner, derived tree calculations, folder/tag actions, and all major panels/modals.
+
+High-level App layout:
+- Top header:
+  - app title.
+  - folder-name search input.
+  - settings button.
+- Center canvas:
+  - pan/zoom capable tree canvas.
+  - SVG connector lines.
+  - folder nodes.
+  - zoom/reset controls.
+- Right sidebar:
+  - selected folder information.
+  - metadata edit fields.
+  - tag assign/search controls.
+- Bottom status bar:
+  - connection/status text.
+  - total folder count.
+- Overlays:
+  - folder edit context menu.
+  - rename/create/delete dialogs.
+  - toast notifications.
+  - settings slide-out modal.
+
+5. Folder Tree Rendering and Layout
+-----------------------------------
+Tree rendering uses d3-hierarchy:
+- state.items[0] is converted to a hierarchy.
+- children are returned only for ids contained in expandedFolderIds.
+- d3.tree().nodeSize(...) creates x/y layout coordinates.
+- visible node sizes are measured and used to derive spacing so larger nodes do not overlap as easily.
+
+Coordinate convention used by the current UI:
+- d3 node.y is treated as the node left x-coordinate.
+- d3 node.x is treated as the node vertical center.
+- FolderNodeComponent renders with left = node.y and top = node.x - measuredHeight / 2.
+- This means each rendered node is effectively top-left positioned while retaining d3's vertical center value for anchor calculations.
+
+Dynamic node measurement:
+- Each folder node has a ResizeObserver.
+- Measurements are stored in nodeSizeMap keyed by FolderNode.id.
+- Initial/default size is used before the first measurement.
+- Changes in name, tags, selected/highlighted/edit/expanded state can trigger remeasurement.
+
+Connector lines:
+- Lines are SVG paths rendered behind nodes.
+- Parent anchor: parent node right-center.
+- Child anchor: child node left-center.
+- The parent x anchor uses parent node measured width.
+- The vertical anchors use d3 center y values, which align with the top-left render correction above.
+- Cubic Bezier curves are used with an adaptive curve offset.
+
+Integration note:
+If this tree is moved into another layout engine, keep the measured-size feedback loop together: node render -> ResizeObserver -> nodeSizeMap -> d3 tree spacing -> connector path recalculation.
+
+6. Node Interaction Model
+-------------------------
+FolderNodeComponent separates interactions intentionally:
+- Clicking the node body selects the node only.
+- The left FolderOpen icon button opens the real OS folder by calling onOpenFolder(data).
+- Double-click open behavior is not used.
+- The right Plus/Minus button toggles expand/collapse by calling onToggleExpand(data.id).
+- Childless nodes render a fixed-width spacer to keep the layout aligned.
+- stopPropagation/preventDefault are used on action buttons to avoid accidental selection/open/expand cross-triggering.
+- In folder edit mode, the open-folder button is disabled to reduce accidental OS actions.
+
+Edit-mode behavior:
+- Nodes become draggable when folder edit mode is enabled.
+- Right-click opens the folder edit context menu.
+- Drag/drop moves nodes under a target folder when possible.
+- Rename, create child, and delete actions are exposed through dialogs.
+
+7. Folder and Tag Features
+--------------------------
+Folder selection:
+- selectedFolderId drives the right sidebar content and selected-node highlight.
+- Selecting a node also pans the view toward the selected node.
+
+Expansion:
+- expandedFolderIds stores visible branches.
+- Search and tag search can auto-expand parent paths to reveal matches.
+
+Tag assignment/search:
+- tagMode = assign: clicking a tag toggles that tag on the selected folder.
+- tagMode = search: clicking tags updates activeTagFilters and highlights folders that contain all selected tags.
+- Search mode expands parent paths for highlighted matching nodes.
+
+Metadata editing:
+- Description, department, owner, and remark fields directly update the selected FolderNode metadata in state.
+
+Folder name search:
+- Searches flatData for the first folder whose name contains searchQuery.
+- Expands parents and selects/focuses the match.
+
+8. Local Folder Loading and Host APIs
+-------------------------------------
+The app supports two folder loading paths:
+
+Electron path:
+- window.folderApi.selectAndScanFolder() opens a native folder picker through Electron.
+- electron/main.cjs scans directories recursively up to MAX_SCAN_DEPTH.
+- The scanned tree replaces current state.items.
+
+Browser fallback path:
+- Uses window.showDirectoryPicker when available and not inside an iframe.
+- Scans File System Access API directory handles.
+- Stores browser directory handles in folderHandleMapRef for in-browser edit operations.
+
+Folder opening:
+- Renderer calls window.folderApi.openFolder(folder.path).
+- Electron main process validates the path exists and calls shell.openPath.
+
+Required host bridge contract if integrating into another desktop shell:
+window.folderApi = {
+  openFolder(path: string): Promise<{ ok: boolean; message?: string }>;
+  selectAndScanFolder(): Promise<{
+    ok: boolean;
+    cancelled?: boolean;
+    folder?: FolderNode;
+    message?: string;
+  }>;
+}
+
+Integration note:
+If the destination app is not Electron, implement an equivalent adapter and keep the renderer-facing shape stable, or refactor App to receive folder operations as injected props/services.
+
+9. Folder Editing Operations
+----------------------------
+The app contains local tree mutation helpers for:
+- Extracting a node from a tree.
+- Inserting a node under a target parent.
+- Updating descendant paths when a folder is moved or renamed.
+- Adding a child node in state.
+- Deleting a node from state.
+
+Electron scan/open operations are present, but browser File System Access handles are also used for operations that require direct directory manipulation in browser-capable environments.
+
+Important constraints:
+- Root folder cannot be moved.
+- A folder cannot be moved into itself or into a descendant.
+- Duplicate folder names under the target are blocked when a handle is available.
+- Invalid folder-name characters are rejected.
+
+10. Settings and Theme
+----------------------
+The settings slide-out modal is controlled by isSettingsOpen and settingsCategory.
+It includes areas for:
+- Root folder selection/registration.
+- Language selection.
+- Tag configuration.
+- Environment/theme colors.
+- Folder edit mode.
+
+Theme fields are stored in AppState.theme:
+- backgroundColor.
+- folderColor.
+- focusColor.
+- lineColor.
+
+Language support:
+- AppLanguage supports ja, en, th, zh, tl, pl.
+- TRANSLATIONS in App.tsx currently contains UI strings.
+
+Integration note:
+For a larger application, extract TRANSLATIONS, theme defaults, and settings categories into separate modules or connect them to the host application's i18n/theme systems.
+
+11. Integration Boundaries and Refactor Recommendations
+-------------------------------------------------------
+Recommended extraction units for integration:
+
+A. Pure models
+- Move src/types.ts unchanged or map it to the destination app's folder/tag models.
+
+B. Tree visualization component
+- Extract FolderNodeComponent, SVG link rendering, nodeSizeMap, and d3 tree calculation into a reusable FolderTree component.
+- Props should include items, tags, selectedFolderId, expandedFolderIds, highlightedFolderIds, theme, and action callbacks.
+
+C. State/actions layer
+- Move selection, expansion, tag toggling, metadata update, search, and edit operations into hooks such as useFolderTreeState or useFolderActions.
+- This makes it easier for the host app to replace in-memory state with server/API persistence.
+
+D. Host folder service
+- Wrap window.folderApi in a folderService module.
+- Provide Electron and non-Electron implementations.
+- Keep openFolder and selectAndScanFolder return types compatible with the existing renderer expectations.
+
+E. Settings/i18n/theme
+- Extract translations from App.tsx.
+- Replace the in-file settings modal with host app settings if needed.
+- Pass theme values through props or a shared design-system provider.
+
+12. Known Current Limitations
+-----------------------------
+- Most UI and state logic is concentrated in src/App.tsx, which makes reuse harder without extraction.
+- State is currently in-memory; a refresh loses tags/metadata/folder edits unless the host app adds persistence.
+- Electron is required for reliable native OS folder opening and native folder selection.
+- Browser fallback depends on File System Access API support and cannot work in restricted iframe contexts.
+- Directory scan depth in Electron is capped by MAX_SCAN_DEPTH in electron/main.cjs.
+- There is no automated unit/integration test suite beyond TypeScript checking and production build validation.
+
+13. Minimal Integration Checklist
+---------------------------------
+1. Decide whether the destination app will run Electron, browser-only, or another desktop shell.
+2. Preserve or replace the window.folderApi contract.
+3. Move or map the FolderNode/Tag/AppState models.
+4. Extract the tree visualization and pass data/actions from the destination app.
+5. Add persistence for items, tags, metadata, expanded ids, selected id, theme, and language as needed.
+6. Verify that ResizeObserver-based node measurement still runs in the destination rendering environment.
+7. Verify connector lines after long folder names, many tags, expand/collapse, tag toggles, and node moves.
+8. Re-run npm install, npm run lint, and npm run build after integration changes.
